@@ -16,6 +16,11 @@ app = FastAPI()
 class LLMRequest(BaseModel):
     text: str
 
+class TestNetworkServer(BaseModel):
+    msg: str
+    
+
+
 
 @lru_cache(maxsize=1)
 def get_llm() -> ChatOpenAI:
@@ -41,7 +46,14 @@ def get_llm() -> ChatOpenAI:
 @app.get("/")
 async def root():
     """エントリポイント: Hello World"""
-    return {"message": "Hello World"}
+    return {"message": "Hello World from LLM Server!"}
+
+@app.post("/post-test")
+async def post_test(request: TestNetworkServer):
+    """エントリポイント: POST テスト用"""
+    msg = f"Received text: {request.msg}"
+    print(msg)
+    return {"response":"POST test request" ,"received_msg": msg}
 
 
 @app.post("/llm")
@@ -61,4 +73,4 @@ async def llm_endpoint(request: LLMRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("server:app", host="0.0.0.0", port=8800, reload=False)
