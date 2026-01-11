@@ -5,9 +5,15 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/SampleScene.unity
     guid: 9fc0d4010bbf28b4594072e72b8655ab
+  - enabled: 0
+    path: Assets/Scenes/WebsocketTest.unity
+    guid: fb5dca5a8f5fd00458dfb62bc1ce3215
+  - enabled: 1
+    path: Assets/Scenes/GridCalibaration.unity
+    guid: ce4276a1843516444a87f85b9c2509f5
   m_configObjects:
     com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: a38990e2bff18b747a4135e57c933094, type: 2}
     com.unity.xr.management.loader_settings: {fileID: 11400000, guid: c3056a9dec0bbe14da67131a68fc00b6, type: 2}
