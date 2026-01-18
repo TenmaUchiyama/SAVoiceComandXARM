@@ -40,17 +40,26 @@ public class DialogManager : MonoBehaviour
 
     private void OnStopListening()
     {
-        buttonColorImage.color = Color.white;
+        // 半透明に戻す
+        Color semiTransparent = Color.white;
+        semiTransparent.a = 0.5f;
+        buttonColorImage.color = semiTransparent;
     }
 
     private void OnStartListening()
     {
-        buttonColorImage.color = Color.green;
+        // 完全に不透明にする
+        Color fullOpaque = Color.green;
+        fullOpaque.a = 1.0f;
+        buttonColorImage.color = fullOpaque;
     }
 
     private void OnSpeechRecognized(string arg0)
     {
         userCommand.text = arg0;
-        buttonColorImage.color = Color.white;
+        // 認識完了後は半透明に戻す
+        Color semiTransparent = Color.white;
+        semiTransparent.a = 0.5f;
+        buttonColorImage.color = semiTransparent;
     }
 }

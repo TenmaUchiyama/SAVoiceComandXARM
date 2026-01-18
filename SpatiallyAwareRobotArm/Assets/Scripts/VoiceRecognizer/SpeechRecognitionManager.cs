@@ -2,6 +2,7 @@ using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.UI;
 using UnityEngine.Windows.Speech;
 
 namespace SA_XARM.SpeechRecognizer
@@ -9,7 +10,9 @@ namespace SA_XARM.SpeechRecognizer
     public class SpeechRecognitionManager : MonoBehaviour
     {
         [SerializeField] private TextMeshProUGUI userText;
-
+        [SerializeField] private RawImage microphoneButton;
+        [SerializeField] private GameObject recordingIcon;
+        
         public bool isListening { get; private set; } = false;
 
         public UnityEvent<string> _onSpeechRecognized;
@@ -42,7 +45,24 @@ namespace SA_XARM.SpeechRecognizer
                 userText.text = text;
             }
 
+            // 認識完了後はボタンを半透明に戻す
+            SetButtonAppearance(Color.white, 0.5f);
+
             _onSpeechRecognized?.Invoke(text);
+        }
+
+        public void ToggleListening()
+        {
+            if (isListening)
+            {
+                StopListening();
+                recordingIcon.SetActive(false);
+            }
+            else
+            {
+                StartListening();
+                recordingIcon.SetActive(true);
+            }
         }
 
         public void StartListening()
@@ -63,9 +83,14 @@ namespace SA_XARM.SpeechRecognizer
             }
 
             speechRecognizer.StartListening();
-
+  
             isListening = true;
+            
+            // ボタンを完全に不透明の緑色に変更
+            SetButtonAppearance(Color.green, 1.0f);
+            
             _onStartListening?.Invoke();
+
         }
 
         public void StopListening()
@@ -88,7 +113,24 @@ namespace SA_XARM.SpeechRecognizer
             }
 
             isListening = false;
+            
+            // ボタンを半透明の白色に変更
+            SetButtonAppearance(Color.white, 0.5f);
+            
             _onStopListening?.Invoke();
+        }
+
+        /// <summary>
+        /// ボタンの色と透明度を設定します
+        /// </summary>
+        private void SetButtonAppearance(Color color, float alpha)
+        {
+            if (microphoneButton != null)
+            {
+                Color buttonColor = color;
+                buttonColor.a = alpha;
+                microphoneButton.color = buttonColor;
+            }
         }
     }
 }
