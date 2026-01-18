@@ -12,8 +12,16 @@ namespace SA_XARM.Network.Request
 {
 public class QueryRequester : MonoBehaviour
 {
-      public async Task<string> GetRequest(string url)
+
+
+    [SerializeField] private string hostAddress = "localhost";
+    [SerializeField] private int portNum = 8080;
+       
+
+      public async Task<string> GetRequest(string path)
         {
+            string safePath = (path ?? string.Empty).TrimStart('/');
+            string url = $"http://{hostAddress}:{portNum}/{safePath}";    
             Debug.Log($"[ActionServerConnector] Sending GET request to {url}");        
         using (UnityWebRequest request = UnityWebRequest.Get(url))
             {
@@ -32,10 +40,14 @@ public class QueryRequester : MonoBehaviour
 
 
 
-    public async Task<string> PostRequest(string url, string jsonBody)
+    public async Task<string> PostRequest(string path, string jsonBody)
         {
+            string safePath = (path ?? string.Empty).TrimStart('/');
+            string url = $"http://{hostAddress}:{portNum}/{safePath}";
+            
+            Debug.Log($"[QueryRequester] POST to {url}");
+            Debug.Log($"[QueryRequester] Request Body: {jsonBody}");
 
-            Debug.Log($"[LLMQueryRequest] Sending POST request to {url}");        
             using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
             {
                 byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonBody);
@@ -62,7 +74,18 @@ public class QueryRequester : MonoBehaviour
 {
     if (request.result != UnityWebRequest.Result.Success)
     {
+        // エラー時もレスポンスボディを取得して詳細を表示
+        string errorBody = "";
+        if (request.downloadHandler != null && request.downloadHandler.data != null)
+        {
+            errorBody = Encoding.UTF8.GetString(request.downloadHandler.data);
+        }
+        
         Debug.LogError($"Error: {request.error} (Response Code: {request.responseCode})");
+        if (!string.IsNullOrEmpty(errorBody))
+        {
+            Debug.LogError($"Error Response Body: {errorBody}");
+        }
         return null; 
     }
     else

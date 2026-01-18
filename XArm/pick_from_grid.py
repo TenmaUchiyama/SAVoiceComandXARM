@@ -46,7 +46,7 @@ class XArmPicker:
         time.sleep(1)
         print("[Init] ロボットの準備が完了しました。")
 
-    def recover_and_retry_gripper(self, pos):
+    def set_gripper_pos(self, pos):
         """エラーが発生しても、復旧して成功するまでリトライする"""
         while True:
             print(f"[Gripper] Moving to {pos}...")
@@ -83,13 +83,13 @@ class XArmPicker:
         self.arm.set_position(px, py, pz + APPROACH_OFFSET_Z, r, p, yaw, wait=True)
         
         # 2. グリッパーを開く
-        self.recover_and_retry_gripper(GRIP_OPEN)
+        self.set_gripper_pos(GRIP_OPEN)
         
         # 3. 下降
         self.arm.set_position(px, py, pz, r, p, yaw, wait=True)
         
         # 4. グリッパーを閉じる
-        self.recover_and_retry_gripper(GRIP_CLOSE)
+        self.set_gripper_pos(GRIP_CLOSE)
         
         # 5. 退避（上昇）
         self.arm.set_position(px, py, pz + APPROACH_OFFSET_Z, r, p, yaw, wait=True)
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     system = XArmPicker(ARM_IP)
 
     # テスト実行 (0,0)
-    system.pick_at(0, 0)
+    system.pick_at(1, 1)
     
     try:
         while True:
@@ -114,6 +114,14 @@ if __name__ == "__main__":
             inputs = val.split()
             if len(inputs) == 2:
                 system.pick_at(inputs[0], inputs[1])
+            
+            else: 
+                #Cが押されたらグリッパーを閉じる
+                if val.lower() == 'c':
+                    system.set_gripper_pos(GRIP_CLOSE)
+                if val.lower() == 'o':
+                    system.set_gripper_pos(GRIP_OPEN)
+                
     except KeyboardInterrupt:
         pass
 

@@ -6,10 +6,10 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 0
-    path: Assets/Scenes/SampleScene.unity
+    path: "Assets/Scenes/\u8A66\u3059\u3084\u3064/SampleScene.unity"
     guid: 9fc0d4010bbf28b4594072e72b8655ab
   - enabled: 0
-    path: Assets/Scenes/WebsocketTest.unity
+    path: "Assets/Scenes/\u8A66\u3059\u3084\u3064/WebsocketTest.unity"
     guid: fb5dca5a8f5fd00458dfb62bc1ce3215
   - enabled: 1
     path: Assets/Scenes/GridCalibaration.unity

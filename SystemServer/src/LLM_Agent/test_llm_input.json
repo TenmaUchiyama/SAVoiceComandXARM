@@ -1,0 +1,308 @@
+{
+  "CalibrationCheckpoint": {
+    "user": {
+      "depth_rank": 6,
+      "right_rank": 1,
+      "front_rank": 17,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 1,
+      "right_rank": 1,
+      "front_rank": 8,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (1)": {
+    "user": {
+      "depth_rank": 4,
+      "right_rank": 3,
+      "front_rank": 16,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 2,
+      "right_rank": 6,
+      "front_rank": 16,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (10)": {
+    "user": {
+      "depth_rank": 7,
+      "right_rank": 16,
+      "front_rank": 8,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 9,
+      "right_rank": 14,
+      "front_rank": 4,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (11)": {
+    "user": {
+      "depth_rank": 14,
+      "right_rank": 4,
+      "front_rank": 12,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 10,
+      "right_rank": 2,
+      "front_rank": 5,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (12)": {
+    "user": {
+      "depth_rank": 15,
+      "right_rank": 11,
+      "front_rank": 5,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 13,
+      "right_rank": 7,
+      "front_rank": 10,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (13)": {
+    "user": {
+      "depth_rank": 13,
+      "right_rank": 15,
+      "front_rank": 6,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 14,
+      "right_rank": 10,
+      "front_rank": 11,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (14)": {
+    "user": {
+      "depth_rank": 11,
+      "right_rank": 17,
+      "front_rank": 14,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 15,
+      "right_rank": 15,
+      "front_rank": 1,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (15)": {
+    "user": {
+      "depth_rank": 16,
+      "right_rank": 6,
+      "front_rank": 10,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 16,
+      "right_rank": 3,
+      "front_rank": 2,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (2)": {
+    "user": {
+      "depth_rank": 2,
+      "right_rank": 8,
+      "front_rank": 9,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 3,
+      "right_rank": 11,
+      "front_rank": 17,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (3)": {
+    "user": {
+      "depth_rank": 1,
+      "right_rank": 12,
+      "front_rank": 13,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 4,
+      "right_rank": 16,
+      "front_rank": 9,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (4)": {
+    "user": {
+      "depth_rank": 8,
+      "right_rank": 5,
+      "front_rank": 7,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 5,
+      "right_rank": 8,
+      "front_rank": 14,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (5)": {
+    "user": {
+      "depth_rank": 5,
+      "right_rank": 10,
+      "front_rank": 1,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 6,
+      "right_rank": 12,
+      "front_rank": 15,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (6)": {
+    "user": {
+      "depth_rank": 3,
+      "right_rank": 14,
+      "front_rank": 4,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 7,
+      "right_rank": 17,
+      "front_rank": 6,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (7)": {
+    "user": {
+      "depth_rank": 10,
+      "right_rank": 2,
+      "front_rank": 15,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 8,
+      "right_rank": 4,
+      "front_rank": 7,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (8)": {
+    "user": {
+      "depth_rank": 12,
+      "right_rank": 9,
+      "front_rank": 3,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 11,
+      "right_rank": 9,
+      "front_rank": 12,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpoint (9)": {
+    "user": {
+      "depth_rank": 9,
+      "right_rank": 13,
+      "front_rank": 2,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 12,
+      "right_rank": 13,
+      "front_rank": 13,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  },
+  "CalibrationCheckpointVisual": {
+    "user": {
+      "depth_rank": 17,
+      "right_rank": 7,
+      "front_rank": 11,
+      "in_fov": true,
+      "reachable": null,
+      "robot_side": null
+    },
+    "robot": {
+      "depth_rank": 17,
+      "right_rank": 5,
+      "front_rank": 3,
+      "in_fov": null,
+      "reachable": true,
+      "robot_side": "back"
+    }
+  }
+}

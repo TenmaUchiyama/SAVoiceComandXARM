@@ -11,6 +11,9 @@ public class SpatialDebugLog : MonoBehaviour
     [SerializeField] private TextMeshProUGUI logText; // Canvas上のText
     [SerializeField] private int maxLines = 15;       // 表示する最大行数
 
+    [Header("Logging")] 
+    [SerializeField] private bool globalLogEnabled = true; // 全体の出力ON/OFF
+
     private Queue<string> logQueue = new Queue<string>();
     private StringBuilder sb = new StringBuilder();
     
@@ -33,8 +36,27 @@ public class SpatialDebugLog : MonoBehaviour
     /// <summary>
     /// 外部からこれを呼ぶだけで画面に表示される
     /// </summary>
-    public void Log(string message, string color = "white")
+    public void SetLogFlag(bool enabled)
     {
+        globalLogEnabled = enabled;
+    }
+
+    public void Log(string message, bool doLog = true,string color = "white")
+    {
+        // UnityエディタのPlayモードでは、Debug.Logのみを使用（UIに依存しない）
+        if (Application.isEditor)
+        {
+            if (globalLogEnabled && doLog)
+            {
+                Debug.Log($"<color={color}>[{System.DateTime.Now:HH:mm:ss}] {message}</color>");
+            }
+            return;
+        }
+
+        // ビルド版では通常のUI表示も行う
+        Debug.Log($"<color={color}>{message}</color>");
+        if(!globalLogEnabled || !doLog) return;
+        
         // タイムスタンプ付与
         string formattedMsg = $"<color={color}>[{System.DateTime.Now:HH:mm:ss}] {message}</color>";
 
@@ -50,8 +72,8 @@ public class SpatialDebugLog : MonoBehaviour
     }
 
     // エラー用ショートカット
-    public void LogError(string message) => Log(message, "red");
-    public void LogSuccess(string message) => Log(message, "green");
+    public void LogError(string message,bool doLog=true) => Log(message, doLog, "red");
+    public void LogSuccess(string message,bool doLog=true) => Log(message, doLog, "green");
 
     private void UpdateText()
     {

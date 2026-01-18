@@ -13,6 +13,14 @@ public class MyMessage
 {
     public string text;
 }
+
+public class MouseKeyInput
+{
+    public string type;
+    public string key;
+}
+
+
 public class TestWebsocketReceiver : MonoBehaviour
 {
 
@@ -26,6 +34,10 @@ public class TestWebsocketReceiver : MonoBehaviour
             Debug.Log($"サーバーからの返事: {msg.text}");
         });
 
+
+
+    
+
         // ▼ 受信設定：サーバーから "Ping" が来たらログに出す
         WebSocketManager.Instance.On<MyMessage>("Ping", (msg) => 
         {
@@ -34,6 +46,17 @@ public class TestWebsocketReceiver : MonoBehaviour
             {
                 debugText.text = $"時報: {msg.text}";
             }
+        });
+
+
+
+
+
+
+        WebSocketManager.Instance.On<MouseKeyInput>("KeyInput", (input) => 
+        {
+            Debug.Log($"Key Input Received: type={input.type}, key={input.key}");
+            SpatialDebugLog.Instance.Log($"[TestWebsocketReceiver] Key Input Received: type={input.type}, key={input.key}", true, "red");
         });
     }
 

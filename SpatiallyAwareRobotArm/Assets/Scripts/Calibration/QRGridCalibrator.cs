@@ -3,222 +3,312 @@ using Microsoft.MixedReality.OpenXR;
 using TMPro;
 using System.Collections.Generic;
 using System.IO;
+using SA_XARM.Network.Websocket;
+using Newtonsoft.Json;
 
-public class QRGridCalibrator : MonoBehaviour
+namespace SA_XARM.Calibration
 {
-    [Header("Dependencies")]
-    [SerializeField] private ARMarkerManager markerManager;
-    [SerializeField] private Transform probeTransform; 
 
-    [Header("QR Code Settings (Case Sensitive)")]
-    [SerializeField] private string textForOrigin = "A"; 
-    [SerializeField] private string textForAxis   = "B"; 
 
-    [Header("UI")]
-    [SerializeField] private TextMeshProUGUI statusText; // 既存の固定UIも残す
-    [SerializeField] private GameObject visualFeedbackPrefab;
 
-    // --- 内部データ ---
-    private Vector3? cachedPosA = null; 
-    private Vector3? cachedPosB = null;
-    
-    private bool calibrationStarted = false; 
-    private Matrix4x4 worldToAnchorMatrix;
-    private int recordIndex = 0;
-    private List<GridPointData> recordedPoints = new List<GridPointData>();
 
-    [System.Serializable]
-    public class GridPointData
+
+    public class QRGridCalibrator : MonoBehaviour
     {
-        public int id;
-        public Vector3 localPos;
-    }
+        // =========================
+        // Inspector
+        // =========================
 
-    private void Start()
-    {
-        // SpatialDebugLogを使用
-        SpatialDebugLog.Instance.Log("[QRGridCalibrator] Initializing...");
+        [Header("Dependencies")]
+        [SerializeField] private ARMarkerManager markerManager;
+        [SerializeField] private Transform probeTransform;
 
-        if (markerManager == null)
+        [Header("Markers")]
+        [SerializeField] private string textMarkerA = "A"; // 原点
+        [SerializeField] private string textMarkerB = "B"; // X軸方向
+
+        [Header("Grid Settings")]
+        [Tooltip("横方向のグリッド数 (4x4なら4)")]
+        [SerializeField] private int gridWidth = 4;
+
+        [Tooltip("縦方向のグリッド数 (4x4なら4)")]
+        [SerializeField] private int gridHeight = 4;
+
+        [Header("UI")]
+        [SerializeField] private TextMeshProUGUI qrAStatusText;
+        [SerializeField] private TextMeshProUGUI qrBStatusText;
+
+        [Tooltip("進行状況や完了メッセージ用")]
+        [SerializeField] private TextMeshProUGUI statusText;
+
+        [Header("Visual / Debug")]
+        [SerializeField] private GameObject visualFeedbackPrefab;
+        [SerializeField] private GameObject gridParent;
+        [SerializeField] private bool doLog = true;
+
+       
+
+        private int TotalPoints => Mathf.Max(1, gridWidth) * Mathf.Max(1, gridHeight);
+
+        private Vector3? posOrigin = null;
+        private Vector3? posXEnd = null;
+        private Matrix4x4 anchorMatrix;
+        private bool isAnchorReady = false;
+
+        private int currentRecordIndex = 0;
+        private readonly List<GridPointData> recordedPoints = new List<GridPointData>();
+
+        private bool hasSaved = false;
+
+        // =========================
+        // Unity
+        // =========================
+
+        private void Start()
         {
-            SpatialDebugLog.Instance.LogError("❌ ARMarkerManager is null!");
-            return;
-        }
-        markerManager.markersChanged += OnMarkersChanged;
-        
-        UpdateUI_PreCalibration();
-        SpatialDebugLog.Instance.Log("Ready. Waiting for markers...");
-    }
+            Log("[QRGridCalibrator] Mode: Manual Teaching Grid", "white");
 
-    private void OnDestroy()
-    {
-        if (markerManager != null) markerManager.markersChanged -= OnMarkersChanged;
-    }
+            if (markerManager != null)
+            {
+                markerManager.markersChanged += OnMarkersChanged;
+            }
+            else
+            {
+                Log("markerManager is NULL", "yellow");
+            }
 
-    // --- 1. QRコード認識部分 ---
-    private void OnMarkersChanged(ARMarkersChangedEventArgs args)
-    {
-        if (calibrationStarted) return;
+            // WebSocket (存在する場合だけ登録)
+            if (WebSocketManager.Instance != null)
+            {
+                WebSocketManager.Instance.On<MouseKeyInput>("KeyInput", (input) =>
+                {
+                    if (input != null && input.key == "space")
+                    {
+                        Log("® Remote Space Key Received!", "green");
+                        RecordCurrentPoint();
+                    }
+                });
+            }
+            else
+            {
+                Log("WebSocketManager.Instance is NULL (skip remote input)", "yellow");
+            }
 
-        foreach (var added in args.added) ProcessMarker(added, "Added");
-        foreach (var updated in args.updated) ProcessMarker(updated, "Updated");
-    }
-
-    private void ProcessMarker(ARMarker marker, string state)
-    {
-        string text = marker.GetDecodedString();
-
-        // SpatialLogは見やすいので、検出ログを流してもOK
-        // SpatialDebugLog.Instance.Log($"Marker ({state}): {text}", "gray");
-
-        if (text == textForOrigin)
-        {
-            cachedPosA = marker.transform.position;
-            // 成功ログ（緑）
-            SpatialDebugLog.Instance.LogSuccess($"✅ Origin (A) Found! {cachedPosA}");
-        }
-        else if (text == textForAxis)
-        {
-            cachedPosB = marker.transform.position;
-            // 成功ログ（緑）
-            SpatialDebugLog.Instance.LogSuccess($"✅ Axis (B) Found! {cachedPosB}");
-        }
-        
-        UpdateUI_PreCalibration();
-    }
-
-    // --- 2. メインループとキャリブレーション ---
-    
-    // ★ボタンから呼ぶ用（MRTKのInteractableからこれを呼ぶ想定）
-    public void OnCalibrationAction()
-    {
-        if (!calibrationStarted)
-        {
-            TryStartCalibration();
-        }
-        else
-        {
-            RecordGridPoint();
-        }
-    }
-
-    // キーボードデバッグ用
-    void Update()
-    {
-        if (Input.GetKeyDown(KeyCode.Space))
-        {
-            OnCalibrationAction();
-        }
-    }
-
-    private void TryStartCalibration()
-    {
-        SpatialDebugLog.Instance.Log("Attempting to lock...", "cyan");
-
-        if (!cachedPosA.HasValue || !cachedPosB.HasValue)
-        {
-            // 警告は黄色で
-            SpatialDebugLog.Instance.Log("❌ Cannot start. Need A & B.", "yellow");
-            return;
+            UpdateUI();
         }
 
-        Vector3 origin = cachedPosA.Value;
-        Vector3 directionX = (cachedPosB.Value - origin).normalized;
-        Vector3 up = Vector3.up;
-        Vector3 directionZ = Vector3.Cross(directionX, up).normalized;
-        Vector3 orthogUp = Vector3.Cross(directionZ, directionX).normalized;
-
-        Quaternion rotation = Quaternion.LookRotation(directionZ, orthogUp);
-        
-        worldToAnchorMatrix = Matrix4x4.TRS(origin, rotation, Vector3.one).inverse;
-
-        calibrationStarted = true;
-        
-        // 詳細な情報をログに出す
-        SpatialDebugLog.Instance.Log("-----------------", "white");
-        SpatialDebugLog.Instance.LogSuccess("🔒 System LOCKED");
-        SpatialDebugLog.Instance.Log($"Origin: {origin}", "white");
-        SpatialDebugLog.Instance.Log($"Rot: {rotation.eulerAngles}", "white");
-        SpatialDebugLog.Instance.Log("-----------------", "white");
-
-        UpdateUI_Recording();
-    }
-
-    private void RecordGridPoint()
-    {
-        if (recordIndex >= 16)
+        private void OnDestroy()
         {
-            SpatialDebugLog.Instance.Log("All points done. Saving...", "cyan");
-            SaveJson();
-            return;
+            if (markerManager != null)
+                markerManager.markersChanged -= OnMarkersChanged;
         }
 
-        Vector3 currentWorldPos = probeTransform.position;
-        Vector3 localPos = worldToAnchorMatrix.MultiplyPoint3x4(currentWorldPos);
-
-        recordedPoints.Add(new GridPointData { id = recordIndex, localPos = localPos });
-
-        // 記録ログ
-        SpatialDebugLog.Instance.Log($"📍 Pt [{recordIndex}] : {localPos}", "white");
-
-        if (visualFeedbackPrefab != null)
-            Instantiate(visualFeedbackPrefab, currentWorldPos, Quaternion.identity);
-
-        recordIndex++;
-        UpdateUI_Recording();
-
-        if (recordIndex >= 16) SaveJson();
-    }
-
-    // --- UI更新メソッド群 ---
-    private void UpdateUI_PreCalibration()
-    {
-        if (statusText == null) return;
-        string msg = "<b>Looking for Markers...</b>\n";
-        msg += $"A: {(cachedPosA.HasValue ? "<color=green>OK</color>" : "<color=red>NO</color>")}\n";
-        msg += $"B: {(cachedPosB.HasValue ? "<color=green>OK</color>" : "<color=red>NO</color>")}\n";
-        if (cachedPosA.HasValue && cachedPosB.HasValue) msg += "\n<b>Press Button/Space to Lock</b>";
-        statusText.text = msg;
-    }
-
-    private void UpdateUI_Recording()
-    {
-        if (statusText == null) return;
-        if (recordIndex >= 16)
+        private void Update()
         {
-            statusText.text = "<color=green>DONE! Saved.</color>";
-            return;
+            if (Input.GetKeyDown(KeyCode.Space))
+                RecordCurrentPoint();
         }
-        int r = recordIndex / 4;
-        int c = recordIndex % 4;
-        statusText.text = $"<b>Record Grid</b>\nTarget: ({r}, {c})\nPress Button.";
-    }
 
-    private void SaveJson()
-    {
-        string json = JsonUtility.ToJson(new Serialization<GridPointData>(recordedPoints), true);
-        string path = Path.Combine(Application.persistentDataPath, "qr_grid_config.json");
-        
-        SpatialDebugLog.Instance.Log($"💾 Saving to: {path}", "cyan");
-        
-        try
-        {
-            File.WriteAllText(path, json);
-            SpatialDebugLog.Instance.LogSuccess("✅ Save SUCCESS!");
-            // JSONの中身もログに出す（長い場合は適宜カット）
-            SpatialDebugLog.Instance.Log("JSON content generated.", "gray");
-        }
-        catch (System.Exception e)
-        {
-            SpatialDebugLog.Instance.LogError($"❌ Save FAILED: {e.Message}");
-        }
-        
-        if (statusText != null) statusText.text = $"Saved!\n{path}";
-    }
-}
+        // =========================
+        // Marker Handling
+        // =========================
 
-[System.Serializable]
-public class Serialization<T> {
-    public List<T> target;
-    public Serialization(List<T> target) { this.target = target; }
+        private void OnMarkersChanged(ARMarkersChangedEventArgs args)
+        {
+            // 記録が終わっていても、アンカー更新・UI更新はしていい
+            foreach (var m in args.added) ProcessMarker(m);
+            foreach (var m in args.updated) ProcessMarker(m);
+        }
+
+        private void ProcessMarker(ARMarker marker)
+        {
+            if (marker == null) return;
+
+            string text = marker.GetDecodedString().Trim();
+
+            if (text == textMarkerA)
+            {
+                posOrigin = marker.transform.position;
+            }
+            else if (text == textMarkerB)
+            {
+                posXEnd = marker.transform.position;
+            }
+
+            if (posOrigin.HasValue && posXEnd.HasValue)
+            {
+                anchorMatrix = GridCalculationLogic.CalculateAnchorMatrix(posOrigin.Value, posXEnd.Value);
+                isAnchorReady = true;
+            }
+
+            UpdateUI();
+        }
+
+        // =========================
+        // Recording
+        // =========================
+
+        public void RecordCurrentPoint()
+        {
+            if (probeTransform == null)
+            {
+                Log("probeTransform is NULL!", "yellow");
+                return;
+            }
+
+            if (!isAnchorReady)
+            {
+                Log("Markers A & B not ready!", "yellow");
+                return;
+            }
+
+            // すでに保存済み＝完全終了
+            if (hasSaved)
+            {
+                Log("Already Completed (saved).", "yellow");
+                return;
+            }
+
+            // 念のため：上限越えを防ぐ
+            if (currentRecordIndex >= TotalPoints)
+            {
+                // ここに来た時点で保存漏れがありえるので救済
+                Log("Reached end but not saved yet -> force save", "yellow");
+                SaveJsonOnce();
+                UpdateUI();
+                return;
+            }
+
+            Vector3 worldPos = probeTransform.position;
+            Vector3 localPos = anchorMatrix.MultiplyPoint3x4(worldPos);
+
+            // 0始まり (x: 0..width-1, y: 0..height-1)
+            int gx = currentRecordIndex % gridWidth;
+            int gy = currentRecordIndex / gridWidth;
+
+            recordedPoints.Add(new GridPointData
+            {
+                id = currentRecordIndex,
+                gridX = gx,
+                gridY = gy,
+                localPos = localPos
+            });
+
+            Log($"Pt[{currentRecordIndex}] Grid({gx},{gy}) local:{localPos}", "white");
+
+            if (visualFeedbackPrefab != null)
+            {
+                if (gridParent != null)
+                    Instantiate(visualFeedbackPrefab, worldPos, Quaternion.identity, gridParent.transform);
+                else
+                    Instantiate(visualFeedbackPrefab, worldPos, Quaternion.identity);
+            }
+
+            currentRecordIndex++;
+
+            // ★最後の1点を入れた瞬間に必ず保存
+            if (currentRecordIndex == TotalPoints)
+            {
+                SaveJsonOnce();
+            }
+
+            UpdateUI();
+        }
+
+        // =========================
+        // Save
+        // =========================
+
+            private void SaveJsonOnce()
+            {
+                if (hasSaved) return;
+
+                try
+                {
+                    Log("💾 Starting Serialization...", "white");
+                    
+                    // Vector3のシリアライズエラーを防ぐための設定
+                    var settings = new JsonSerializerSettings
+                    {
+                        ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+                        Formatting = Formatting.Indented
+                    };
+
+                    string json = JsonConvert.SerializeObject(recordedPoints, settings);
+                    
+                    Log($"💾 Serialization Success. Length: {json.Length}", "white");
+
+                    string path = Path.Combine(Application.persistentDataPath, "qr_grid_config.json");
+                    
+                    // ファイル書き込み
+                    File.WriteAllText(path, json);
+                    
+                    hasSaved = true;
+                    Log("✅ All points Saved!", "green");
+                    Log($"Path: {path}", "gray");
+                }
+                catch (System.Exception e)
+                {
+                    // ここで Unity の標準ログにも出す
+                    Debug.LogError($"[CRITICAL SAVE ERROR] {e}"); 
+                    Log($"❌ Save Error: {e.Message}", "red");
+                }
+            }
+
+        // =========================
+        // UI
+        // =========================
+
+        private void UpdateUI()
+        {
+            if (qrAStatusText != null)
+                qrAStatusText.text = posOrigin.HasValue ? "<color=green>OK</color>" : "<color=red>No</color>";
+
+            if (qrBStatusText != null)
+                qrBStatusText.text = posXEnd.HasValue ? "<color=green>OK</color>" : "<color=red>No</color>";
+
+            if (statusText == null) return;
+
+            int total = TotalPoints;
+
+            if (hasSaved)
+            {
+                statusText.text = "<color=green><b>COMPLETE (SAVED)</b></color>";
+                return;
+            }  
+
+            if (!isAnchorReady)
+            {
+                statusText.text = "Waiting for Markers...";
+                return;
+            }
+
+            if (currentRecordIndex >= total)
+            {
+                // ここは基本来ない（SaveJsonOnce が走る）が、念のため
+                statusText.text = "<color=yellow><b>COMPLETE (NOT SAVED?)</b></color>";
+                return;
+            }
+
+            int nextX = currentRecordIndex % gridWidth;
+            int nextY = currentRecordIndex / gridWidth;
+
+            statusText.text =
+                $"Point: <b>{currentRecordIndex}</b> / {total}\n" +
+                $"Target: ({nextX}, {nextY})\n" +
+                $"Press Space";
+        }
+
+        // =========================
+        // Logging wrapper
+        // =========================
+
+        private void Log(string msg, string color)
+        {
+            // SpatialDebugLog が無い環境でも落とさない
+
+                SpatialDebugLog.Instance.Log(msg, doLog, color);
+         
+        }
+    }
 }

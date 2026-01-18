@@ -100,7 +100,7 @@ class XArmManualControl:
                     self.safe_gripper_move(850)
                     time.sleep(0.1)
                 if keyboard.is_pressed("c"):
-                    self.safe_gripper_move(350)
+                    self.safe_gripper_move(250)
                     time.sleep(0.1)
 
                 # 表示 (Print)
@@ -110,11 +110,14 @@ class XArmManualControl:
                     time.sleep(0.3)
 
                 # 記録 (Save)
-                if keyboard.is_pressed("qspace"):
+                if keyboard.is_pressed("space"):
                     _, pose = self.arm.get_position()
+                    code, servo = self.arm.get_servo_angle()
+
                     label = f"pose_{self.pose_counter}"
                     self.saved_poses[label] = pose
                     print(f"Saved [{label}]: {pose}")
+                    print(f"Servo Angles: {servo[:7]}")
                     self.pose_counter += 1
                     time.sleep(0.5)
 
