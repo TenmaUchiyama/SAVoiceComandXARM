@@ -6,10 +6,24 @@ from typing import Dict, Optional, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException
 from contextlib import asynccontextmanager
 from Calculator.AgentObjectSelectorCalculator import *
-from LLM_Agent.agent import classify_reference_frame, decide_selection_rule, execute_decision
+from LLM_Agent.agent import (
+    classify_reference_frame,
+    classify_reference_frame_v2,
+    decide_selection_rule,
+    execute_decision,
+    rank_objects_v2,
+)
 from manager import send_json_grid
 from manager import manager, keyboard_monitor_loop
 from utils import save_grid_to_file, save_robot_marker_config
+from spatial_pipeline import (
+    SessionContext,
+    SpatialReferenceRequest,
+    RefinementRequest,
+    ConfirmationRequest,
+    compute_spatial_features,
+    apply_fallback_ranking,
+)
 # from models import CommandRequest, XarmPickRequest
 # from SpatialCalculator import SpatialCalculator
 
@@ -52,6 +66,185 @@ async def lifespan(app: FastAPI):
         robot.disconnect()
 
 app = FastAPI(title="Integrated Spatial Robot Controller", lifespan=lifespan)
+
+SESSION_STORE: Dict[str, SessionContext] = {}
+
+
+def _parse_json_message(payload: str) -> dict:
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid_json: {exc}") from exc
+
+
+def _validate_coordinates(request: SpatialReferenceRequest):
+    if not request.objects:
+        raise ValueError("E003: objects is empty")
+    for item in request.objects:
+        values = [item.position.x, item.position.y, item.position.z]
+        if any(abs(v) > 100.0 for v in values):
+            raise ValueError(f"E004: invalid coordinate range for {item.id}")
+
+
+async def _run_with_timeout(coro, timeout_sec: float):
+    return await asyncio.wait_for(coro, timeout=timeout_sec)
+
+
+async def _run_stage1(utterance: str):
+    return await _run_with_timeout(asyncio.to_thread(classify_reference_frame_v2, utterance), timeout_sec=10.0)
+
+
+async def _run_stage2(utterance: str, reference_frame: str, features: List[Dict], refinement_context: str = ""):
+    return await _run_with_timeout(
+        asyncio.to_thread(rank_objects_v2, utterance, reference_frame, features, refinement_context),
+        timeout_sec=10.0,
+    )
+
+
+def _build_result_message(request_id: str, reference_frame: str, ranked_candidates: List[Dict], reasoning: str) -> dict:
+    top = ranked_candidates[0] if ranked_candidates else {"object_id": None, "score": 0.0}
+    return {
+        "type": "spatial_reference_result",
+        "request_id": request_id,
+        "target": {
+            "object_id": top.get("object_id"),
+            "confidence": top.get("score", 0.0),
+            "reference_frame": reference_frame,
+        },
+        "ranked_candidates": [
+            {"object_id": row.get("object_id"), "score": row.get("score", 0.0)} for row in ranked_candidates
+        ],
+        "reasoning": reasoning,
+    }
+
+
+async def _process_spatial_reference_request(request_data: SpatialReferenceRequest) -> dict:
+    _validate_coordinates(request_data)
+    frame_decision = await _run_stage1(request_data.utterance.text)
+    reference_frame = frame_decision.reference_frame
+
+    features = compute_spatial_features(
+        objects=request_data.objects,
+        reference_frame=reference_frame,
+        user_pose=request_data.user_pose,
+        robot_pose=request_data.robot_pose,
+    )
+
+    try:
+        stage2 = await _run_stage2(request_data.utterance.text, reference_frame, features)
+        ranked_candidates = [
+            {"object_id": row.object_id, "score": row.score, "reason": row.reason}
+            for row in stage2.ranked_objects
+        ]
+    except Exception:
+        ranked_candidates = apply_fallback_ranking(request_data.utterance.text, features)
+
+    SESSION_STORE[request_data.request_id] = SessionContext(
+        request_id=request_data.request_id,
+        utterance=request_data.utterance.text,
+        reference_frame=reference_frame,
+        objects=request_data.objects,
+        user_pose=request_data.user_pose,
+        robot_pose=request_data.robot_pose,
+        ranked_candidates=ranked_candidates,
+    )
+
+    return _build_result_message(
+        request_id=request_data.request_id,
+        reference_frame=reference_frame,
+        ranked_candidates=ranked_candidates,
+        reasoning="LLM selection" if ranked_candidates and ranked_candidates[0].get("reason") != "fallback" else "fallback selection",
+    )
+
+
+async def _process_refinement_request(request_data: RefinementRequest) -> dict:
+    previous = SESSION_STORE.get(request_data.original_request_id)
+    if previous is None:
+        return {
+            "type": "error",
+            "request_id": request_data.request_id,
+            "error_code": "E006",
+            "message": "session expired or unknown original_request_id",
+        }
+
+    user_pose = request_data.user_pose or previous.user_pose
+    reference_frame = previous.reference_frame
+
+    features = compute_spatial_features(
+        objects=previous.objects,
+        reference_frame=reference_frame,
+        user_pose=user_pose,
+        robot_pose=previous.robot_pose,
+    )
+
+    refinement_context = f"前回ターゲット: {request_data.previous_target or previous.ranked_candidates[0].get('object_id') if previous.ranked_candidates else 'unknown'}"
+    try:
+        stage2 = await _run_stage2(request_data.utterance.text, reference_frame, features, refinement_context)
+        ranked_candidates = [
+            {"object_id": row.object_id, "score": row.score, "reason": row.reason}
+            for row in stage2.ranked_objects
+        ]
+    except Exception:
+        ranked_candidates = apply_fallback_ranking(request_data.utterance.text, features, request_data.previous_target)
+
+    SESSION_STORE[request_data.request_id] = SessionContext(
+        request_id=request_data.request_id,
+        utterance=request_data.utterance.text,
+        reference_frame=reference_frame,
+        objects=previous.objects,
+        user_pose=user_pose,
+        robot_pose=previous.robot_pose,
+        ranked_candidates=ranked_candidates,
+    )
+
+    return _build_result_message(
+        request_id=request_data.request_id,
+        reference_frame=reference_frame,
+        ranked_candidates=ranked_candidates,
+        reasoning="refined selection",
+    )
+
+
+async def _process_confirmation_request(request_data: ConfirmationRequest) -> dict:
+    session = SESSION_STORE.get(request_data.request_id)
+    if session is None:
+        return {
+            "type": "error",
+            "request_id": request_data.request_id,
+            "error_code": "E006",
+            "message": "session expired or unknown request_id",
+        }
+
+    target = next((obj for obj in session.objects if obj.id == request_data.confirmed_object_id), None)
+    if target is None:
+        return {
+            "type": "error",
+            "request_id": request_data.request_id,
+            "error_code": "E004",
+            "message": "invalid confirmed_object_id",
+        }
+
+    command = {
+        "type": "robot_command",
+        "request_id": request_data.request_id,
+        "action": request_data.action,
+        "target_object_id": target.id,
+        "target_position": {
+            "x": target.position.x,
+            "y": target.position.y,
+            "z": target.position.z,
+        },
+        "status": "executing",
+    }
+
+    if robot is not None and request_data.action == "pick":
+        try:
+            robot.pick_at(target.position.x, target.position.y)
+        except Exception as exc:
+            command["status"] = "failed"
+            command["error"] = str(exc)
+
+    return command
 
 
 
@@ -371,6 +564,64 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         print(f"【Server】エラー: {e!r}")
         manager.disconnect(websocket)
+
+
+@app.websocket("/spatial")
+async def spatial_ws_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                message = _parse_json_message(raw)
+                msg_type = message.get("type")
+                if msg_type == "spatial_reference_request":
+                    req = SpatialReferenceRequest(**message)
+                    response = await _process_spatial_reference_request(req)
+                elif msg_type == "refinement_request":
+                    req = RefinementRequest(**message)
+                    response = await _process_refinement_request(req)
+                elif msg_type == "confirmation":
+                    req = ConfirmationRequest(**message)
+                    response = await _process_confirmation_request(req)
+                else:
+                    response = {
+                        "type": "error",
+                        "error_code": "E004",
+                        "message": f"unsupported message type: {msg_type}",
+                    }
+            except ValueError as exc:
+                response = {
+                    "type": "error",
+                    "error_code": "E004",
+                    "message": str(exc),
+                }
+            except Exception as exc:
+                response = {
+                    "type": "error",
+                    "error_code": "E002",
+                    "message": str(exc),
+                }
+
+            await websocket.send_text(json.dumps(response, ensure_ascii=False))
+    except WebSocketDisconnect:
+        return
+
+
+@app.websocket("/status")
+async def status_ws_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            await websocket.receive_text()
+            status = {
+                "type": "status",
+                "active_sessions": len(SESSION_STORE),
+                "robot_enabled": robot is not None,
+            }
+            await websocket.send_text(json.dumps(status, ensure_ascii=False))
+    except WebSocketDisconnect:
+        return
 
 if __name__ == "__main__":
     import uvicorn
