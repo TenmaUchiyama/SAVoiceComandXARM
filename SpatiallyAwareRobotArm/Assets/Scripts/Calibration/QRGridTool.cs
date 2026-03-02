@@ -18,6 +18,15 @@ namespace SA_XARM.Calibration
         public int gridX;
         public int gridY;
         public Vector3 localPos; // Anchor(Local)
+        public string color = "unknown";
+    }
+
+    [System.Serializable]
+    public class GridColorSetting
+    {
+        public int gridX;
+        public int gridY;
+        public string color = "unknown";
     }
 
     [System.Serializable]
@@ -43,6 +52,13 @@ namespace SA_XARM.Calibration
         [Header("Grid Settings")]
         [SerializeField] private int gridWidth = 4;
         [SerializeField] private int gridHeight = 4;
+        [SerializeField] private string defaultGridColor = "unknown";
+        [SerializeField] private List<GridColorSetting> gridColorSettings = new List<GridColorSetting>();
+
+        [Header("Runtime Color Edit")]
+        [SerializeField] private int editGridX = 0;
+        [SerializeField] private int editGridY = 0;
+        [SerializeField] private string editColor = "red";
 
         [Header("JSON (Local Files)")]
         [SerializeField] private string gridJsonFileName = "qr_grid_config.json";
@@ -464,7 +480,8 @@ namespace SA_XARM.Calibration
                 id = currentRecordIndex,
                 gridX = gx,
                 gridY = gy,
-                localPos = localPos
+                localPos = localPos,
+                color = ResolveGridColor(gx, gy)
             });
 
             if (teachPointPrefab != null)
@@ -642,6 +659,8 @@ namespace SA_XARM.Calibration
 
                     var gridComp = go.GetComponent<global::Grid>();
                     if (gridComp != null) gridComp.SetGridPosition(p.gridX, p.gridY);
+
+                    ApplyColorToRenderer(go, p.color);
 
                     spawned.Add(go);
                 }
@@ -852,6 +871,189 @@ namespace SA_XARM.Calibration
         private string GetRobotJsonPath()
         {
             return Path.Combine(Application.persistentDataPath, robotJsonFileName);
+        }
+
+        public void SetColorFromInspectorFieldsAndSave()
+        {
+            SetGridColorAndSave(editGridX, editGridY, editColor);
+        }
+
+        public void SetGridColorAndSave(int gx, int gy, string color)
+        {
+            if (string.IsNullOrWhiteSpace(color))
+            {
+                SpatialDebugLog.Instance.Log("Color is empty. Skip update.", doLog, "yellow");
+                return;
+            }
+
+            UpsertGridColorSetting(gx, gy, color);
+            ApplyColorToRecordedPoints(gx, gy, color);
+            SaveGridColorToLocalJson();
+        }
+
+        public void SetGridColorByVoiceText(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                SpatialDebugLog.Instance.Log("Voice command is empty.", doLog, "yellow");
+                return;
+            }
+
+            string[] parts = command.Trim().Split(' ');
+            if (parts.Length < 3)
+            {
+                SpatialDebugLog.Instance.Log("Voice command format: '<x> <y> <color>'", doLog, "yellow");
+                return;
+            }
+
+            int offset = parts.Length >= 4 && parts[0].ToLowerInvariant() == "color" ? 1 : 0;
+
+            if (!int.TryParse(parts[offset], out int gx) || !int.TryParse(parts[offset + 1], out int gy))
+            {
+                SpatialDebugLog.Instance.Log("Failed to parse grid coordinates.", doLog, "yellow");
+                return;
+            }
+
+            string color = parts[offset + 2];
+            SetGridColorAndSave(gx, gy, color);
+        }
+
+        private void SaveGridColorToLocalJson()
+        {
+            string path = GetGridJsonPath();
+            if (!File.Exists(path))
+            {
+                SpatialDebugLog.Instance.Log($"GRID JSON not found: {path}", doLog, "red");
+                return;
+            }
+
+            List<GridPointData> points = LoadGridFromFile();
+            if (points == null || points.Count == 0)
+            {
+                SpatialDebugLog.Instance.Log("No grid points to update.", doLog, "yellow");
+                return;
+            }
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                GridPointData point = points[i];
+                if (point == null) continue;
+                point.color = ResolveGridColor(point.gridX, point.gridY);
+            }
+
+            var settings = new JsonSerializerSettings
+            {
+                Formatting = Formatting.Indented,
+                MissingMemberHandling = MissingMemberHandling.Ignore,
+                NullValueHandling = NullValueHandling.Ignore,
+                Converters = new List<JsonConverter> { new Vector3Converter() }
+            };
+
+            string json = JsonConvert.SerializeObject(points, settings);
+            File.WriteAllText(path, json);
+            SpatialDebugLog.Instance.Log($"Updated grid colors and saved: {path}", doLog, "green");
+
+            if (WebSocketManager.Instance != null)
+                WebSocketManager.Instance.Send(wsSaveGridEvent, json);
+        }
+
+        private void UpsertGridColorSetting(int gx, int gy, string color)
+        {
+            for (int i = 0; i < gridColorSettings.Count; i++)
+            {
+                var setting = gridColorSettings[i];
+                if (setting == null) continue;
+                if (setting.gridX == gx && setting.gridY == gy)
+                {
+                    setting.color = color;
+                    return;
+                }
+            }
+
+            gridColorSettings.Add(new GridColorSetting
+            {
+                gridX = gx,
+                gridY = gy,
+                color = color
+            });
+        }
+
+        private void ApplyColorToRecordedPoints(int gx, int gy, string color)
+        {
+            for (int i = 0; i < recordedPoints.Count; i++)
+            {
+                var point = recordedPoints[i];
+                if (point == null) continue;
+                if (point.gridX == gx && point.gridY == gy)
+                {
+                    point.color = color;
+                }
+            }
+        }
+
+        private string ResolveGridColor(int gx, int gy)
+        {
+            for (int i = 0; i < gridColorSettings.Count; i++)
+            {
+                var setting = gridColorSettings[i];
+                if (setting == null) continue;
+                if (setting.gridX == gx && setting.gridY == gy)
+                {
+                    if (!string.IsNullOrWhiteSpace(setting.color))
+                        return setting.color;
+                    break;
+                }
+            }
+
+            return string.IsNullOrWhiteSpace(defaultGridColor) ? "unknown" : defaultGridColor;
+        }
+
+        private void ApplyColorToRenderer(GameObject target, string colorNameOrHex)
+        {
+            if (target == null || string.IsNullOrWhiteSpace(colorNameOrHex)) return;
+
+            if (!ColorUtility.TryParseHtmlString(colorNameOrHex, out var parsedColor))
+            {
+                if (!TryParseNamedColor(colorNameOrHex, out parsedColor)) return;
+            }
+
+            var renderer = target.GetComponentInChildren<Renderer>();
+            if (renderer == null || renderer.material == null) return;
+            renderer.material.color = parsedColor;
+        }
+
+        private bool TryParseNamedColor(string input, out Color parsed)
+        {
+            parsed = Color.white;
+            switch ((input ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "red":
+                case "赤":
+                    parsed = Color.red;
+                    return true;
+                case "green":
+                case "緑":
+                    parsed = Color.green;
+                    return true;
+                case "blue":
+                case "青":
+                    parsed = Color.blue;
+                    return true;
+                case "yellow":
+                case "黄":
+                    parsed = Color.yellow;
+                    return true;
+                case "white":
+                case "白":
+                    parsed = Color.white;
+                    return true;
+                case "black":
+                case "黒":
+                    parsed = Color.black;
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         // =========================

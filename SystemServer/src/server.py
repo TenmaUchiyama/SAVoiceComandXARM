@@ -1,3 +1,9 @@
+import dotenv 
+
+dotenv.load_dotenv("../.env")  # .env ファイルから環境変数を読み込む
+
+
+
 import asyncio
 import json
 import os
