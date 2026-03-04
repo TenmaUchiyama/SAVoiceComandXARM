@@ -37,7 +37,7 @@ namespace SA_XARM.Calibration
         // Newtonsoft用クラス定義
         public class GridPointData
         {
-            public int id;
+            public string id;
             public Vector3 localPos; 
         }
 

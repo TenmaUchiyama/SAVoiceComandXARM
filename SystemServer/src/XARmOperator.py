@@ -150,42 +150,77 @@ class XArmOperator:
 
     def open_gripper(self) -> tuple[bool, str]:
         """グリッパーを開く"""
-        if not self.connected or not self.arm:
-            return False, "Robot not connected"
-        try:
-            self.arm.set_gripper_position(self.gripper_open_pos, wait=True)
-            return True, "Gripper opened"
-        except Exception as e:
-            return False, str(e)
+        self.arm.set_gripper_position(self.gripper_open_pos, wait=True)
+     
+        err_code = self.arm.get_err_warn_code()
+        if err_code[1][0] != 0: # エラーがある場合
+                print(f"Error detected: {err_code}")
+                self.arm.clean_error()
+                self.arm.motion_enable(True)
+        
+                # ステートを強制的に0(Ready)に戻す
+                self.arm.set_state(0)
+        time.sleep(0.5)  # 少し待つ
     
     def close_gripper(self) -> tuple[bool, str]:
         """グリッパーを閉じる"""
-        if not self.connected or not self.arm:
-            return False, "Robot not connected"
-        try:
-            self.arm.set_gripper_position(self.gripper_close_pos, wait=True)
-            return True, "Gripper closed"
-        except Exception as e:
-            return False, str(e)
+        self.arm.set_gripper_position(self.gripper_close_pos, wait=True)
+        
+        err_code = self.arm.get_err_warn_code()
+        if err_code[1][0] != 0: # エラーがある場合
+                print(f"Error detected: {err_code}")
+                self.arm.clean_error()
+                self.arm.motion_enable(True)
+        
+        # ステートを強制的に0(Ready)に戻す
+        self.arm.set_state(0)
+        time.sleep(0.5)  # 少し待つ
 
+    
     def pick_at(self, x: int, y: int) -> tuple[bool, str]:
+        """グリッド座標からピックする
+        
+        Args:
+            x: グリッドX座標 (0-3)
+            y: グリッドY座標 (0-3)
         """
-        指定座標(x,y)のアイテムをピックする。
-        【動作フロー】: (現在地) -> UP_Zへ移動 -> 横移動(UP_Z維持) -> DOWN_Zへ下降 -> 掴む -> UP_Zへ上昇
+        # 座標からIDを計算: (1, 1) → box_5
+        grid_id = f"box_{y * 4 + x}"
+        return self.pick_at_from_id(grid_id)
+
+    def pick_at_from_id(self, grid_id: str) -> tuple[bool, str]: 
+        """IDから座標を取得してピックする
+        
+        Args:
+            grid_id: グリッドID (例: "box_0", "box_15")
         """
+        print(f"Picking at grid ID: {grid_id}")
         if not self.connected or not self.arm:
             return False, "Robot not connected"
 
-        key = f"{x},{y}"
-        if key not in self.pose_map:
-            return False, f"Grid {key} not found"
+        if grid_id not in self.pose_map:
+            return False, f"Grid ID '{grid_id}' not found in pose map"
+
+        # pose_mapから直接ポーズを取得
+        target_pose = self.pose_map[grid_id]
+        return self._pick_at_pose(target_pose)
+    
+    def _pick_at_pose(self, target_pose: list) -> tuple[bool, str]:
+        """
+        指定されたポーズでアイテムをピックする。
+        【動作フロー】: (現在地) -> UP_Zへ移動 -> 横移動(UP_Z維持) -> DOWN_Zへ下降 -> 掴む -> UP_Zへ上昇
+        
+        Args:
+            target_pose: [x, y, z, roll, pitch, yaw] のリスト
+        """
+        if not self.connected or not self.arm:
+            return False, "Robot not connected"
 
         # 設定値の固定
         DOWN_Z = 179.3   # 下降時の高さ
         UP_Z = 290.0     # 上昇・移動時の高さ
 
         # 目標座標の取得 (x, y, roll, pitch, yaw を利用)
-        target_pose = self.pose_map[key]
         tx, ty, _, tr, tp, tyaw = target_pose 
 
         try:
@@ -219,17 +254,9 @@ class XArmOperator:
             # 3. ピッキング動作 (Pick Sequence)
             # -------------------------------------------------
             # グリッパーを開く
-            self.arm.set_gripper_position(self.gripper_open_pos, wait=True)
-     
-            err_code = self.arm.get_err_warn_code()
-            if err_code[1][0] != 0: # エラーがある場合
-                 print(f"Error detected: {err_code}")
-                 self.arm.clean_error()
-                 self.arm.motion_enable(True)
-            
-                 # ステートを強制的に0(Ready)に戻す
-                 self.arm.set_state(0)
-            time.sleep(0.5)  # 少し待つ
+            self.open_gripper()
+
+
             # 下りる (固定値 179.3 へ)
             print(f"Moving down to Z={DOWN_Z}")
             code = self.arm.set_position(x=tx, y=ty, z=DOWN_Z, 
@@ -237,17 +264,9 @@ class XArmOperator:
             
 
             # 掴む
-            self.arm.set_gripper_position(self.gripper_close_pos, wait=True)
-            time.sleep(0.5)  # 少し待つ
-            err_code = self.arm.get_err_warn_code()
-            if err_code[1][0] != 0: # エラーがある場合
-                 print(f"Error detected: {err_code}")
-                 self.arm.clean_error()
-                 self.arm.motion_enable(True)
-            
-            # ステートを強制的に0(Ready)に戻す
-            self.arm.set_state(0)
-
+            self.close_gripper()
+            time.sleep(1)  # 少し待つ
+            self.open_gripper()  # 確実に掴めているか確認のため一旦開く
             # 上がる (固定値 290.0 へ)
             print(f"Moving up to Z={UP_Z}")
             code = self.arm.set_position(x=tx, y=ty, z=UP_Z, 

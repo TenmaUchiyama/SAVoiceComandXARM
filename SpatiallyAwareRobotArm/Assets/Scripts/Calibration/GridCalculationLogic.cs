@@ -37,7 +37,7 @@ public class GridCalculationLogic
 
                 points.Add(new GridPointData 
                 { 
-                    id = index, 
+                    id = index.ToString(), 
                     localPos = localPos 
                 });
 

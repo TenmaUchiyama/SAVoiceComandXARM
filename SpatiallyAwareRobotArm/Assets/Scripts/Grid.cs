@@ -4,10 +4,13 @@ using UnityEngine;
 
 public class Grid : MonoBehaviour
 {
+
+    [SerializeField] private string grid_id = "";
    [SerializeField] private int x_grid = 0;
    [SerializeField] private int y_grid = 0;
 
     [SerializeField] private GameObject gridVisual;
+    [SerializeField] private GameObject childMaterial;
     
     private Material matRenderer;
     void Start()
@@ -22,9 +25,16 @@ public class Grid : MonoBehaviour
     }
 
 
-
-    public void SetGridPosition(int x, int y)
+    public void SetGridVisibility(bool isVisible)
     {
+        gridVisual.SetActive(isVisible);
+    }   
+
+
+
+    public void SetGridPosition(string grid_id, int x, int y)
+    {
+        this.grid_id = grid_id;
         this.x_grid = x;
         this.y_grid = y;
     }
@@ -58,8 +68,8 @@ public class Grid : MonoBehaviour
     }
 
 
-    public (int, int) GetGridPosition()
+    public (string, int, int) GetGridPosition()
     {
-        return (this.x_grid, this.y_grid);
+        return (this.grid_id, this.x_grid, this.y_grid);
     }
 }

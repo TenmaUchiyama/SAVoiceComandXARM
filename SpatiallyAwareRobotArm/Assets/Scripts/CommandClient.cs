@@ -38,7 +38,10 @@ public class CommandClient : MonoBehaviour
     [Tooltip("子オブジェクト名をそのまま id に使う（例: obj_00 など）")]
     [SerializeField] private bool useChildNameAsId = true;
 
-[SerializeField] private Transform robotBaseTransform;
+    [Header("Debug")]
+    [SerializeField] private bool doLog = true;
+
+    [SerializeField] private Transform robotBaseTransform;
     
 
     public UnityEvent<CommandResponseDto> OnReceiveCommandResponse;
@@ -57,18 +60,25 @@ public string debugUtterance = "目の前の箱を一個とって";
 
 
 
-    void Update()
+    // void Update()
+    // {
+    //     if(Input.GetKeyDown(KeyCode.Space))
+    //     {
+    //         SendCommand(debugUtterance);
+    //     }
+    // }
+
+
+    public void SetRobotBaseTransform(Transform robotTransform)
     {
-        if(Input.GetKeyDown(KeyCode.Space))
-        {
-            SendCommand(debugUtterance);
-        }
+        SpatialDebugLog.Instance.Log("[CommandClient] SetRobotBaseTransform called.", doLog);
+        this.robotBaseTransform = robotTransform;
     }
     public async void SendCommand(string utterance)
     {
         if (gridsRoot == null)
         {
-            Debug.LogError("[CommandClient] gridsRoot is null. Assign 'Grids' transform in Inspector.");
+            SpatialDebugLog.Instance.Log("[CommandClient] gridsRoot is null. Assign 'Grids' transform in Inspector.", doLog, "red");
             return;
         }
 
@@ -77,14 +87,14 @@ public string debugUtterance = "目の前の箱を一個とって";
             userCamera = Camera.main;
             if (userCamera == null)
             {
-                Debug.LogError("[CommandClient] userCamera is null and Camera.main not found.");
+                SpatialDebugLog.Instance.Log("[CommandClient] userCamera is null and Camera.main not found.", doLog, "red");
                 return;
             }
         }
 
         if (XarmAppServerQueryRequester.Instance == null)
         {
-            Debug.LogError("[CommandClient] XarmAppServerQueryRequester.Instance is null.");
+            SpatialDebugLog.Instance.Log("[CommandClient] XarmAppServerQueryRequester.Instance is null.", doLog, "red");
             return;
         }
 
@@ -92,14 +102,14 @@ public string debugUtterance = "目の前の箱を一個とって";
         var req = BuildRequest(utterance);
         string json = JsonConvert.SerializeObject(req, Formatting.None);
 
-        Debug.Log($"[CommandClient] Sending command: {json}");
+        SpatialDebugLog.Instance.Log($"[CommandClient] Sending command: {json}", doLog);
 
-        Debug.Log($"Check null XarmAppServerQueryRequester.Instance: {XarmAppServerQueryRequester.Instance == null}");
+        SpatialDebugLog.Instance.Log($"Check null XarmAppServerQueryRequester.Instance: {XarmAppServerQueryRequester.Instance == null}", doLog, "gray");
         try
         {
             
             string response = await XarmAppServerQueryRequester.Instance.SendQuery(serverPath, json);
-            Debug.Log("[CommandClient] Received response: " + response);
+            SpatialDebugLog.Instance.Log("[CommandClient] Received response: " + response, doLog, "green");
             if (OnReceiveCommandResponse != null)
             {
                 CommandResponseDto responseDto = JsonConvert.DeserializeObject<CommandResponseDto>(response);
@@ -108,7 +118,7 @@ public string debugUtterance = "目の前の箱を一個とって";
         }
         catch (Exception e)
         {
-            Debug.LogError($"[CommandClient] Failed to send command: {e.Message}");
+            SpatialDebugLog.Instance.Log($"[CommandClient] Failed to send command: {e.Message}", doLog, "red");
         }
     }
 
@@ -225,7 +235,19 @@ private RobotPoseDto BuildRobotPoseDto()
             continue;
 
         Vector3 p = t.position; // world座標
-        string id = useChildNameAsId ? t.name : MakeFallbackId(t);
+        
+        // GridコンポーネントからIDを取得
+        string id;
+        Grid gridComponent = t.GetComponent<Grid>();
+        if (gridComponent != null)
+        {
+            var (gridId, _, _) = gridComponent.GetGridPosition();
+            id = gridId;
+        }
+        else
+        {
+            id = useChildNameAsId ? t.name : MakeFallbackId(t);
+        }
 
         list.Add(new ObjectDto
         {
@@ -237,7 +259,7 @@ private RobotPoseDto BuildRobotPoseDto()
     // 念のためID順で安定化（デバッグ・再現性）
     list.Sort((a, b) => string.CompareOrdinal(a.id, b.id));
 
-    Debug.Log($"[CommandClient] Collected objects (direct children only): {list.Count}");
+    SpatialDebugLog.Instance.Log($"[CommandClient] Collected objects (direct children only): {list.Count}", doLog, "gray");
     return list;
 }
 

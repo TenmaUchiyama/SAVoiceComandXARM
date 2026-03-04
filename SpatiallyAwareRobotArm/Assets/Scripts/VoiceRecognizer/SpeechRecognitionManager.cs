@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
@@ -9,128 +10,237 @@ namespace SA_XARM.SpeechRecognizer
 {
     public class SpeechRecognitionManager : MonoBehaviour
     {
-        [SerializeField] private TextMeshProUGUI userText;
-        [SerializeField] private RawImage microphoneButton;
-        [SerializeField] private GameObject recordingIcon;
-        
+
         public bool isListening { get; private set; } = false;
+        private bool isTransitioning = false;
+        private string recognizedText = "";
 
         public UnityEvent<string> _onSpeechRecognized;
         public UnityEvent _onStartListening;
         public UnityEvent _onStopListening;
+        public UnityEvent _onSilenceTimeout;
 
         private ISpeechRecognizer speechRecognizer;
+        private bool pendingSilenceTimeout = false;
+
+
 
         void Awake()
         {
+            // UnityEvent が Inspector 未設定でも落ちないように
+            _onSpeechRecognized ??= new UnityEvent<string>();
+            _onStartListening ??= new UnityEvent();
+            _onStopListening ??= new UnityEvent();
+            _onSilenceTimeout ??= new UnityEvent();
+
+            // Speech recognizer 作成
             speechRecognizer = SpeechRecognizerFactory.Create();
+            if (speechRecognizer == null)
+            {
+                SafeLog("[SpeechRecognitionManager] ❌ SpeechRecognizerFactory.Create() returned null. (Platform/Settings issue?)");
+                enabled = false;
+                return;
+            }
+
             speechRecognizer.OnRecognized += OnSpeechRecognized;
             speechRecognizer.OnError += OnVoiceError;
+            speechRecognizer.OnSilenceTimeout += OnSilenceTimeout;
 
-            Debug.Log("[SpeechRecognitionManager] Selected Recognizer: "
-                + SpeechRecognizerFactory.selectedRecognizer);
+            SafeLog("[SpeechRecognitionManager] Selected Recognizer: " + SpeechRecognizerFactory.selectedRecognizer);
+        }
+
+        private void Start()
+        {
+     
+
+            // ここで一回、参照が刺さってるか確認ログ（null犯人特定の第一歩）
+        }
+
+        void Update()
+        {
+            if (pendingSilenceTimeout)
+            {
+                pendingSilenceTimeout = false;
+                HandleSilenceTimeoutAsync();
+            }
+        }
+
+        private void OnSilenceTimeout()
+        {
+            SafeLog("[SpeechRecognitionManager] Silence timeout detected");
+            pendingSilenceTimeout = true;
+        }
+
+        private async void HandleSilenceTimeoutAsync()
+        {
+            if (isListening && !isTransitioning)
+            {
+                SafeLog("[SpeechRecognitionManager] Silence timeout - auto stopping");
+                await StopListeningAsync();
+                _onSilenceTimeout?.Invoke();
+            }
         }
 
         private void OnVoiceError(string text)
         {
-            Debug.LogError("[SpeechRecognitionManager] Voice Error: " + text);
+            SafeLog("[SpeechRecognitionManager] Voice Error: " + text);
         }
 
         private void OnSpeechRecognized(string text)
         {
-            Debug.Log("[SpeechRecognitionManager] Recognized: " + text);
+            SafeLog("[SpeechRecognitionManager] Recognized: " + text);
 
-            if (userText != null)
-            {
-                userText.text = text;
-            }
-
+            recognizedText = text;
             // 認識完了後はボタンを半透明に戻す
-            SetButtonAppearance(Color.white, 0.5f);
 
             _onSpeechRecognized?.Invoke(text);
         }
 
-        public void ToggleListening()
+        public async void ToggleListening()
         {
+            if (isTransitioning)
+            {
+                SafeLog("[SpeechRecognitionManager] State transition in progress");
+                return;
+            }
+
             if (isListening)
             {
-                StopListening();
-                recordingIcon.SetActive(false);
+                await StopListeningAsync();
             }
             else
             {
-                StartListening();
-                recordingIcon.SetActive(true);
+                await StartListeningAsync();
             }
         }
 
-        public void StartListening()
+        public async void StartListening()
         {
-            if (isListening)
+            await StartListeningAsync();
+           
+        }
+
+        public async void StopListening()
+        {
+            await StopListeningAsync();
+        }
+
+        private async Task StartListeningAsync()
+        {
+            if (isListening || isTransitioning)
             {
-                Debug.LogWarning("[SpeechRecognitionManager] Already listening");
+                SafeLog("[SpeechRecognitionManager] Already listening or transitioning");
                 return;
             }
 
-            Debug.Log("[SpeechRecognitionManager] StartListening");
-
-            // ★ PhraseRecognitionSystem を止める
-            if (PhraseRecognitionSystem.Status == SpeechSystemStatus.Running)
+            // ここで null なら確実に落ちるので先に弾く
+            if (speechRecognizer == null)
             {
-                Debug.Log("[SpeechRecognitionManager] Shutdown PhraseRecognitionSystem");
-                PhraseRecognitionSystem.Shutdown();
-            }
-
-            speechRecognizer.StartListening();
-  
-            isListening = true;
-            
-            // ボタンを完全に不透明の緑色に変更
-            SetButtonAppearance(Color.green, 1.0f);
-            
-            _onStartListening?.Invoke();
-
-        }
-
-        public void StopListening()
-        {
-            if (!isListening)
-            {
-                Debug.LogWarning("[SpeechRecognitionManager] Not listening");
+                SafeLog("[SpeechRecognitionManager] ❌ speechRecognizer is null. (Awake failed or disabled?)");
                 return;
             }
 
-            Debug.Log("[SpeechRecognitionManager] StopListening");
+            isTransitioning = true;
+            SafeLog("[SpeechRecognitionManager] StartListening");
 
-            speechRecognizer.StopListening();
 
-            // ★ WakeWord を復活させる
-            if (PhraseRecognitionSystem.Status == SpeechSystemStatus.Stopped)
+            try
             {
-                Debug.Log("[SpeechRecognitionManager] Restart PhraseRecognitionSystem");
-                PhraseRecognitionSystem.Restart();
+                // Unity API: main thread only
+                var status = PhraseRecognitionSystem.Status;
+                SafeLog("[SpeechRecognitionManager] PhraseRecognitionSystem.Status = " + status);
+
+                if (status == SpeechSystemStatus.Running)
+                {
+                    SafeLog("[SpeechRecognitionManager] Shutdown PhraseRecognitionSystem");
+                    PhraseRecognitionSystem.Shutdown();
+                }
+
+                SafeLog("[SpeechRecognitionManager] speechRecognizer.StartListening()...");
+                speechRecognizer.StartListening(); // ← ここで落ちる可能性が高い
+
+                isListening = true;
+
+                _onStartListening?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                // Message だけじゃなく ToString() でスタックトレース出す
+                SafeLog("[SpeechRecognitionManager] StartListening failed:\n" + ex.ToString());
+            }
+            finally
+            {
+                isTransitioning = false;
             }
 
-            isListening = false;
-            
-            // ボタンを半透明の白色に変更
-            SetButtonAppearance(Color.white, 0.5f);
-            
-            _onStopListening?.Invoke();
+            await Task.CompletedTask;
         }
 
-        /// <summary>
-        /// ボタンの色と透明度を設定します
-        /// </summary>
-        private void SetButtonAppearance(Color color, float alpha)
+        private async Task StopListeningAsync()
         {
-            if (microphoneButton != null)
+            if (!isListening || isTransitioning)
             {
-                Color buttonColor = color;
-                buttonColor.a = alpha;
-                microphoneButton.color = buttonColor;
+                SafeLog("[SpeechRecognitionManager] Not listening or transitioning");
+                return;
             }
+
+            if (speechRecognizer == null)
+            {
+                SafeLog("[SpeechRecognitionManager] ❌ speechRecognizer is null.");
+                return;
+            }
+
+            isTransitioning = true;
+            SafeLog("[SpeechRecognitionManager] StopListening");
+
+
+            try
+            {
+                SafeLog("[SpeechRecognitionManager] speechRecognizer.StopListening()...");
+                speechRecognizer.StopListening();
+
+                var status = PhraseRecognitionSystem.Status;
+                SafeLog("[SpeechRecognitionManager] PhraseRecognitionSystem.Status = " + status);
+
+                if (status == SpeechSystemStatus.Stopped)
+                {
+                    SafeLog("[SpeechRecognitionManager] Restart PhraseRecognitionSystem");
+                    PhraseRecognitionSystem.Restart();
+                }
+
+                isListening = false;
+
+                _onStopListening?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                SafeLog("[SpeechRecognitionManager] StopListening failed:\n" + ex.ToString());
+            }
+            finally
+            {
+                isTransitioning = false;
+            }
+
+            await Task.CompletedTask;
         }
+
+   
+
+        // SpatialDebugLog が null でも落ちないようにする
+        private void SafeLog(string msg)
+        {
+            if (SpatialDebugLog.Instance != null)
+                SpatialDebugLog.Instance.Log(msg);
+            else
+                Debug.Log(msg);
+        }
+
+
+
+
+        public string GetRecognizedText()
+        {
+            return recognizedText;
+        }   
     }
 }

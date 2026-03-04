@@ -1,3 +1,4 @@
+
 using UnityEngine;
 using Microsoft.MixedReality.OpenXR;
 using TMPro;
@@ -7,14 +8,13 @@ using System.Linq;
 using SA_XARM.Network.Websocket;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using SA_XARM.Network.Request;
 
 namespace SA_XARM.Calibration
 {
     [System.Serializable]
     public class GridPointData
     {
-        public int id;
+        public string id;
         public int gridX;
         public int gridY;
         public Vector3 localPos; // Anchor(Local)
@@ -23,7 +23,8 @@ namespace SA_XARM.Calibration
     [System.Serializable]
     public class RobotConfigData
     {
-        public Vector3? robotLocalPos = null; // Anchor(Local)
+        public Vector3? robotLocalPos = null;      // Anchor(Local)
+        public Vector3? robotLocalForward = null;  // Anchor(Local)
     }
 
     public class QRGridTool : MonoBehaviour
@@ -34,6 +35,7 @@ namespace SA_XARM.Calibration
         [Header("Dependencies")]
         [SerializeField] private ARMarkerManager markerManager;
         [SerializeField] private Transform probeTransform;
+        [SerializeField] private CommandClient commandClient;
 
         [Header("Markers")]
         [SerializeField] private string textMarkerA = "A";
@@ -52,7 +54,7 @@ namespace SA_XARM.Calibration
         [SerializeField] private string wsSaveGridEvent = "SaveGridConfig";
         [SerializeField] private string wsSaveRobotEvent = "SaveRobotConfig";
 
-        // ★サーバーに合わせる：イベントは分離
+        // Server events
         [SerializeField] private string wsRestoreGridEvent = "RestoreGridConfig";
         [SerializeField] private string wsRestoreRobotMarkerEvent = "RestoreRobotMarkerConfig";
 
@@ -64,7 +66,7 @@ namespace SA_XARM.Calibration
         [Tooltip("Restore時、worldPos.y を卓上(Origin=Aマーカー)の y に強制する")]
         [SerializeField] private bool forceWorldYToTableHeight = true;
 
-        [Tooltip("Save時、localPos.y を 0 に固定してXZだけ保存する")]
+        [Tooltip("Save時、localPos.y を 0 に固定してXZだけ保存する（forwardも水平化）")]
         [SerializeField] private bool saveXZOnly = true;
 
         // ===== Manual Marker (Inspector Test) =====
@@ -77,13 +79,14 @@ namespace SA_XARM.Calibration
         [SerializeField] private bool disableARMarkerManagerWhenManual = true;
 
         [Header("Visual / Debug")]
-        [SerializeField] private GameObject teachPointPrefab;
-        [SerializeField] private GameObject restorePointPrefab;
-        [SerializeField] private Transform pointsParent;
+        [SerializeField] private GameObject teachPointPrefab;   // grid teach visualization
+        [SerializeField] private GameObject restorePointPrefab; // grid restore visualization
+        [SerializeField] private Transform pointsParent;        // Grid points parent
         [SerializeField] private bool doLog = true;
 
         [Header("Robot Visual")]
         [SerializeField] private GameObject robotPointPrefab;
+        [SerializeField] private Transform robotPointParent;    // Robot pose parent (separate from grid)
 
         [Header("UI")]
         [SerializeField] private TextMeshProUGUI qrAStatusText;
@@ -111,15 +114,16 @@ namespace SA_XARM.Calibration
 
         private int TotalPoints => Mathf.Max(1, gridWidth) * Mathf.Max(1, gridHeight);
 
-        // Robot
-        private Vector3? posRobotCurrent = null;     // world
-        private Vector3? savedRobotLocalPos = null;  // local
+        // Robot (teach / restore)
+        private Vector3? savedRobotLocalPos = null;        // local
+        private Vector3? savedRobotLocalForward = null;    // local
         private bool hasSavedRobot = false;
         private GameObject spawnedRobotPoint = null;
 
         // ===== Remote restore buffering =====
         private List<GridPointData> pendingRemoteGridPoints = null;
         private Vector3? pendingRemoteRobotLocalPos = null;
+        private Vector3? pendingRemoteRobotLocalForward = null;
         private readonly object lockObj = new object();
 
         private bool wsSubscribed = false;
@@ -166,9 +170,10 @@ namespace SA_XARM.Calibration
             if (useManualMarkers && manualUpdateEveryFrame)
                 TryUpdateAnchorFromManual(force: false);
 
-            // ★メインスレッドで復元（Instantiate安全）
+            // ---- Execute remote restore on main thread ----
             List<GridPointData> gridToRestore = null;
-            Vector3? robotLocalToRestore = null;
+            Vector3? robotLocalPosToRestore = null;
+            Vector3? robotLocalForwardToRestore = null;
 
             lock (lockObj)
             {
@@ -177,14 +182,21 @@ namespace SA_XARM.Calibration
                     gridToRestore = pendingRemoteGridPoints;
                     pendingRemoteGridPoints = null;
                 }
+
                 if (pendingRemoteRobotLocalPos.HasValue)
                 {
-                    robotLocalToRestore = pendingRemoteRobotLocalPos;
+                    robotLocalPosToRestore = pendingRemoteRobotLocalPos;
                     pendingRemoteRobotLocalPos = null;
+                }
+
+                if (pendingRemoteRobotLocalForward.HasValue)
+                {
+                    robotLocalForwardToRestore = pendingRemoteRobotLocalForward;
+                    pendingRemoteRobotLocalForward = null;
                 }
             }
 
-            if (gridToRestore != null || robotLocalToRestore.HasValue)
+            if (gridToRestore != null || robotLocalPosToRestore.HasValue)
             {
                 SpatialDebugLog.Instance.Log("Executing Restore from Remote Data...", doLog, "green");
                 SelectMode(Mode.Restore);
@@ -195,11 +207,17 @@ namespace SA_XARM.Calibration
                 if (gridToRestore != null && gridToRestore.Count > 0)
                     RestoreFromPoints(gridToRestore);
 
-                if (robotLocalToRestore.HasValue)
-                    RestoreRobotFromLocal(robotLocalToRestore.Value);
+                if (robotLocalPosToRestore.HasValue)
+                {
+                    Vector3 lf = robotLocalForwardToRestore ?? Vector3.forward; // fallback
+                    RestoreRobotFromLocal(robotLocalPosToRestore.Value, lf);
+                }
             }
         }
 
+        // =========================
+        // WebSocket Subscriptions
+        // =========================
         private void EnsureWebSocketSubscriptions()
         {
             if (wsSubscribed) return;
@@ -217,16 +235,14 @@ namespace SA_XARM.Calibration
                 else if (k == "l") OnLPressedRecordRobot();
             });
 
-            // =========================
-            // ✅ Server: RestoreGridConfig  (payload = json.dumps({gridPoints: [...] , ...}))
-            // =========================
+            // RestoreGridConfig
             WebSocketManager.Instance.On(wsRestoreGridEvent, (jsonPayload) =>
             {
                 SpatialDebugLog.Instance.Log($"[QRGridTool] {wsRestoreGridEvent} received", doLog);
 
                 try
                 {
-                    var root = ParsePossiblyNestedPayload(jsonPayload); // {type, filename, gridPoints...} を期待
+                    var root = ParsePossiblyNestedPayload(jsonPayload);
                     JToken pointsToken = root?["gridPoints"];
                     var points = ParseGridPointsToken(pointsToken);
 
@@ -253,30 +269,26 @@ namespace SA_XARM.Calibration
                 }
             });
 
-            // =========================
-            // ✅ Server: RestoreRobotMarkerConfig (payload = json.dumps({markerData: {...}}))
-            // =========================
+            // RestoreRobotMarkerConfig (robotLocalPos + robotLocalForward)
             WebSocketManager.Instance.On(wsRestoreRobotMarkerEvent, (jsonPayload) =>
             {
                 SpatialDebugLog.Instance.Log($"[QRGridTool] {wsRestoreRobotMarkerEvent} received", doLog);
 
                 try
                 {
-                    var root = ParsePossiblyNestedPayload(jsonPayload); // {type, filename, markerData...} を期待
+                    var root = ParsePossiblyNestedPayload(jsonPayload);
                     JToken markerToken = root?["markerData"];
 
-                    // 期待:
-                    // markerData = { robotLocalPos: {x,y,z} }
-                    // もしくは markerData = { localPos: {x,y,z} } などにも保険で対応
-                    Vector3? robotLocal = ParseRobotMarkerData(markerToken);
+                    var pose = ParseRobotPose(markerToken); // (pos?, forward?)
 
-                    if (robotLocal.HasValue)
+                    if (pose.pos.HasValue)
                     {
                         lock (lockObj)
                         {
-                            pendingRemoteRobotLocalPos = robotLocal.Value;
+                            pendingRemoteRobotLocalPos = pose.pos.Value;
+                            if (pose.forward.HasValue) pendingRemoteRobotLocalForward = pose.forward.Value;
                         }
-                        SpatialDebugLog.Instance.Log("Queued remote ROBOT marker restore.", doLog, "cyan");
+                        SpatialDebugLog.Instance.Log("Queued remote ROBOT restore (pos/forward).", doLog, "cyan");
                     }
                     else
                     {
@@ -309,7 +321,7 @@ namespace SA_XARM.Calibration
             else if (mode == Mode.Restore)
             {
                 manualUpdateEveryFrame = false;
-                SpatialDebugLog.Instance.Log("Mode => RESTORE (Space: Local Restore, J: Remote Restore)", doLog, "cyan");
+                SpatialDebugLog.Instance.Log("Mode => RESTORE (Space: Local Restore / J: Remote Restore)", doLog, "cyan");
                 if (probeTransform != null) probeTransform.gameObject.SetActive(false);
 
                 if (autoRestoreWhenAnchorReady && isAnchorReady && !hasRestored)
@@ -362,7 +374,12 @@ namespace SA_XARM.Calibration
 
             if (text == textMarkerA) posOrigin = marker.transform.position;
             else if (text == textMarkerB) posXEnd = marker.transform.position;
-            else if (text == textMarkerRobot) posRobotCurrent = marker.transform.position;
+            else if (text == textMarkerRobot)
+            {
+                // NOTE: ARMarker gives us a Transform, but in your pipeline you decided to teach robot pose from probeTransform.
+                // We keep marker only as optional debug / future use.
+                _lastManualRobot = marker.transform.position;
+            }
 
             RecomputeAnchorIfReady();
             UpdateUI();
@@ -397,9 +414,6 @@ namespace SA_XARM.Calibration
             posOrigin = a;
             posXEnd = b;
 
-            if (manualMarkerRobot != null)
-                posRobotCurrent = manualMarkerRobot.position;
-
             RecomputeAnchorIfReady();
 
             if (mode == Mode.Restore && autoRestoreWhenAnchorReady && isAnchorReady && !hasRestored)
@@ -420,6 +434,21 @@ namespace SA_XARM.Calibration
                 isAnchorReady = false;
             }
         }
+
+
+
+
+
+        public void SetGridVisibility(bool isVisible)
+        {
+
+
+            SpatialDebugLog.Instance.Log($"SetGridVisibility: {isVisible}", doLog, "gray");
+            foreach(var go in pointsParent.GetComponentsInChildren<Grid>())
+            {
+                go.SetGridVisibility(isVisible);
+            }
+        }   
 
         // =========================
         // Teach (Grid)
@@ -454,14 +483,16 @@ namespace SA_XARM.Calibration
             Vector3 localPos = worldToAnchor.MultiplyPoint3x4(worldPos);
 
             if (saveXZOnly)
+            {
                 localPos.y = 0f;
+            }
 
             int gx = currentRecordIndex % gridWidth;
             int gy = currentRecordIndex / gridWidth;
 
             recordedPoints.Add(new GridPointData
             {
-                id = currentRecordIndex,
+                id = currentRecordIndex.ToString(),
                 gridX = gx,
                 gridY = gy,
                 localPos = localPos
@@ -491,6 +522,7 @@ namespace SA_XARM.Calibration
             try
             {
                 string path = GetGridJsonPath();
+
                 var settings = new JsonSerializerSettings
                 {
                     Formatting = Formatting.Indented,
@@ -520,7 +552,7 @@ namespace SA_XARM.Calibration
         }
 
         // =========================
-        // Teach (Robot)
+        // Teach (Robot Pose) from probeTransform
         // =========================
         public void RecordRobotPoint()
         {
@@ -530,37 +562,59 @@ namespace SA_XARM.Calibration
                 return;
             }
 
-            Vector3 worldPos;
-
-            if (posRobotCurrent.HasValue)
+            if (probeTransform == null)
             {
-                worldPos = posRobotCurrent.Value;
-            }
-            else if (probeTransform != null)
-            {
-                worldPos = probeTransform.position;
-                SpatialDebugLog.Instance.Log("Robot marker not found. Using probeTransform position as robot position.", doLog, "yellow");
-            }
-            else
-            {
-                SpatialDebugLog.Instance.Log("Robot position is unavailable (no robot marker, no probe).", doLog, "red");
+                SpatialDebugLog.Instance.Log("probeTransform is NULL -> cannot record robot.", doLog, "red");
                 return;
             }
 
+            // World pose (INPUT)
+            Vector3 worldPos = probeTransform.position;
+            Vector3 worldForward = probeTransform.forward;
+
+            // Convert to Anchor(Local)
             Vector3 localPos = worldToAnchor.MultiplyPoint3x4(worldPos);
+            Vector3 localForward = worldToAnchor.MultiplyVector(worldForward);
+
             if (saveXZOnly)
+            {
                 localPos.y = 0f;
+                localForward.y = 0f; // keep forward horizontal
+            }
+            localForward = localForward.sqrMagnitude > 1e-8f ? localForward.normalized : Vector3.forward;
 
             savedRobotLocalPos = localPos;
+            savedRobotLocalForward = localForward;
 
+            // Visualize (OUTPUT)
             if (robotPointPrefab != null)
             {
-                if (spawnedRobotPoint != null) Destroy(spawnedRobotPoint);
-                spawnedRobotPoint = Instantiate(robotPointPrefab, worldPos, Quaternion.identity, pointsParent);
-                spawnedRobotPoint.name = "TeachRobotPoint";
+                if (spawnedRobotPoint != null)
+                    Destroy(spawnedRobotPoint);
+
+                Vector3 worldForwardViz = worldForward;
+                if (saveXZOnly)
+                {
+                    worldForwardViz.y = 0f;
+                    if (worldForwardViz.sqrMagnitude < 1e-8f) worldForwardViz = Vector3.forward;
+                    worldForwardViz.Normalize();
+                }
+
+                spawnedRobotPoint = Instantiate(
+                    robotPointPrefab,
+                    worldPos,
+                    Quaternion.LookRotation(worldForwardViz, Vector3.up),
+                    robotPointParent  // Use separate parent (not grid's pointsParent)
+                );
+
+                spawnedRobotPoint.name = "TeachRobotPose";
+                commandClient.SetRobotBaseTransform(spawnedRobotPoint.transform);
+            }else{
+                SpatialDebugLog.Instance.Log($"[TEACH] Robot local pos={localPos}, forward={localForward}", doLog, "white");
+
             }
 
-            SpatialDebugLog.Instance.Log($"[TEACH] Robot local: {localPos}", doLog, "white");
+            SpatialDebugLog.Instance.Log($"[TEACH] Robot local pos={localPos}, forward={localForward}", doLog, "white");
 
             SaveRobotJsonOverwrite();
             UpdateUI();
@@ -578,7 +632,11 @@ namespace SA_XARM.Calibration
 
                 string path = GetRobotJsonPath();
 
-                var data = new RobotConfigData { robotLocalPos = savedRobotLocalPos };
+                var data = new RobotConfigData
+                {
+                    robotLocalPos = savedRobotLocalPos,
+                    robotLocalForward = savedRobotLocalForward
+                };
 
                 var settings = new JsonSerializerSettings
                 {
@@ -641,7 +699,7 @@ namespace SA_XARM.Calibration
                     go.name = $"RestoredPoint_{p.id}_({p.gridX},{p.gridY})";
 
                     var gridComp = go.GetComponent<global::Grid>();
-                    if (gridComp != null) gridComp.SetGridPosition(p.gridX, p.gridY);
+                    if (gridComp != null) gridComp.SetGridPosition(p.id.ToString(), p.gridX, p.gridY);
 
                     spawned.Add(go);
                 }
@@ -655,9 +713,9 @@ namespace SA_XARM.Calibration
         }
 
         // =========================
-        // Restore (Robot)
+        // Restore (Robot Pose)
         // =========================
-        private void RestoreRobotFromLocal(Vector3 robotLocal)
+        private void RestoreRobotFromLocal(Vector3 robotLocalPos, Vector3 robotLocalForward)
         {
             if (!isAnchorReady)
             {
@@ -668,11 +726,20 @@ namespace SA_XARM.Calibration
             Matrix4x4 anchorToWorld = worldToAnchor.inverse;
             float tableY = posOrigin.HasValue ? posOrigin.Value.y : 0f;
 
-            Vector3 local = robotLocal;
-            if (saveXZOnly)
-                local.y = 0f;
+            Vector3 localPos = robotLocalPos;
+            Vector3 localForward = robotLocalForward;
 
-            Vector3 worldPos = anchorToWorld.MultiplyPoint3x4(local);
+            if (saveXZOnly)
+            {
+                localPos.y = 0f;
+                localForward.y = 0f;
+            }
+            localForward = localForward.sqrMagnitude > 1e-8f ? localForward.normalized : Vector3.forward;
+
+            Vector3 worldPos = anchorToWorld.MultiplyPoint3x4(localPos);
+            Vector3 worldForward = anchorToWorld.MultiplyVector(localForward);
+            if (saveXZOnly) worldForward.y = 0f;
+            worldForward = worldForward.sqrMagnitude > 1e-8f ? worldForward.normalized : Vector3.forward;
 
             if (forceWorldYToTableHeight && posOrigin.HasValue)
                 worldPos.y = tableY;
@@ -680,14 +747,22 @@ namespace SA_XARM.Calibration
             if (robotPointPrefab != null)
             {
                 if (spawnedRobotPoint != null) Destroy(spawnedRobotPoint);
-                spawnedRobotPoint = Instantiate(robotPointPrefab, worldPos, Quaternion.identity, pointsParent);
-                spawnedRobotPoint.name = "RestoredRobotPoint";
+
+                spawnedRobotPoint = Instantiate(
+                    robotPointPrefab,
+                    worldPos,
+                    Quaternion.LookRotation(worldForward, Vector3.up),
+                    robotPointParent  // Use separate parent (not grid's pointsParent)
+                );
+
+                spawnedRobotPoint.name = "RestoredRobotPose";
             }
 
-            savedRobotLocalPos = robotLocal;
+            savedRobotLocalPos = robotLocalPos;
+            savedRobotLocalForward = robotLocalForward;
             hasRestored = true;
 
-            SpatialDebugLog.Instance.Log($"✅ Restored ROBOT point. local={robotLocal}", doLog, "green");
+            SpatialDebugLog.Instance.Log($"✅ Restored ROBOT pose. localPos={robotLocalPos}, localForward={robotLocalForward}", doLog, "green");
             UpdateUI();
         }
 
@@ -713,11 +788,15 @@ namespace SA_XARM.Calibration
                 restoredAny = true;
             }
 
-            var robotLocal = LoadRobotFromFile();
-            if (robotLocal.HasValue)
+            var robot = LoadRobotFromFile();
+            if (robot.HasValue)
             {
                 if (clearBeforeRestore && !restoredAny) ClearSpawnedOnly();
-                RestoreRobotFromLocal(robotLocal.Value);
+
+                Vector3 pos = robot.Value.pos;
+                Vector3 fwd = robot.Value.forward ?? Vector3.forward; // fallback
+                RestoreRobotFromLocal(pos, fwd);
+
                 restoredAny = true;
             }
 
@@ -762,7 +841,7 @@ namespace SA_XARM.Calibration
             }
         }
 
-        private Vector3? LoadRobotFromFile()
+        private (Vector3 pos, Vector3? forward)? LoadRobotFromFile()
         {
             string path = GetRobotJsonPath();
             if (!File.Exists(path))
@@ -790,7 +869,9 @@ namespace SA_XARM.Calibration
                     return null;
                 }
 
-                return data.robotLocalPos.Value;
+                Vector3 pos = data.robotLocalPos.Value;
+                Vector3? fwd = data.robotLocalForward.HasValue ? data.robotLocalForward.Value : (Vector3?)null;
+                return (pos, fwd);
             }
             catch (System.Exception e)
             {
@@ -820,6 +901,7 @@ namespace SA_XARM.Calibration
             hasSavedGrid = false;
 
             savedRobotLocalPos = null;
+            savedRobotLocalForward = null;
             hasSavedRobot = false;
 
             if (spawnedRobotPoint != null)
@@ -908,10 +990,6 @@ namespace SA_XARM.Calibration
         // =========================
         // Remote Parsing
         // =========================
-
-        // ★重要: サーバーは packet={"eventId": "...", "payload": json.dumps(payload)} を送るので、
-        // Unity側のコールバックで受け取る string は多くの場合 payload文字列そのもの（"{...}"）。
-        // ただし実装によっては packet全体が来ることもあるので両対応。
         private JObject ParsePossiblyNestedPayload(string jsonPayload)
         {
             if (string.IsNullOrWhiteSpace(jsonPayload))
@@ -919,7 +997,7 @@ namespace SA_XARM.Calibration
 
             string normalized = jsonPayload.Trim();
 
-            // "\"{...}\"" の二重文字列化対応
+            // "\"{...}\"" -> "{...}"
             if (normalized.Length >= 2 && normalized[0] == '"' && normalized[normalized.Length - 1] == '"')
             {
                 try { normalized = JsonConvert.DeserializeObject<string>(normalized); }
@@ -928,7 +1006,7 @@ namespace SA_XARM.Calibration
 
             JToken token = JToken.Parse(normalized);
 
-            // packet全体が来るケース: {"eventId":"X","payload":"{...}"}
+            // packet case: {"eventId":"X","payload":"{...}"}
             if (token.Type == JTokenType.Object)
             {
                 var obj = (JObject)token;
@@ -937,7 +1015,6 @@ namespace SA_XARM.Calibration
                     string inner = obj["payload"].Value<string>();
                     if (!string.IsNullOrWhiteSpace(inner))
                     {
-                        // innerも "\"{...}\"" の可能性あり
                         inner = inner.Trim();
                         if (inner.Length >= 2 && inner[0] == '"' && inner[inner.Length - 1] == '"')
                         {
@@ -985,16 +1062,13 @@ namespace SA_XARM.Calibration
             return token.ToObject<List<GridPointData>>(JsonSerializer.Create(settings));
         }
 
-        // markerData の中身から robot local を抜く
-        // 想定:
-        // markerData = { robotLocalPos: {x,y,z} }  (あなたのローカル保存と同じ)
-        // 互換:
-        // markerData = { localPos: {x,y,z} }
-        private Vector3? ParseRobotMarkerData(JToken markerDataToken)
+        // Parse robot pose from markerData:
+        // markerData = { robotLocalPos:{x,y,z}, robotLocalForward:{x,y,z} }
+        // fallback keys: localPos / localForward
+        private (Vector3? pos, Vector3? forward) ParseRobotPose(JToken markerDataToken)
         {
-            if (markerDataToken == null) return null;
+            if (markerDataToken == null) return (null, null);
 
-            // markerData 自体が文字列化
             if (markerDataToken.Type == JTokenType.String)
             {
                 var inner = markerDataToken.Value<string>();
@@ -1003,32 +1077,39 @@ namespace SA_XARM.Calibration
             }
 
             if (markerDataToken.Type != JTokenType.Object)
-                return null;
+                return (null, null);
 
             var obj = (JObject)markerDataToken;
 
             JToken posToken =
-                obj["robotLocalPos"]
-                ?? obj["localPos"]
-                ?? obj["markerLocalPos"];
+                obj["robotLocalPos"] ?? obj["localPos"] ?? obj["markerLocalPos"];
 
-            if (posToken == null) return null;
+            JToken fwdToken =
+                obj["robotLocalForward"] ?? obj["localForward"] ?? obj["markerLocalForward"];
 
-            // posToken が文字列化
-            if (posToken.Type == JTokenType.String)
+            Vector3? pos = ParseVector3Token(posToken);
+            Vector3? fwd = ParseVector3Token(fwdToken);
+
+            return (pos, fwd);
+        }
+
+        private Vector3? ParseVector3Token(JToken token)
+        {
+            if (token == null) return null;
+
+            if (token.Type == JTokenType.String)
             {
-                var inner = posToken.Value<string>();
+                var inner = token.Value<string>();
                 if (!string.IsNullOrWhiteSpace(inner))
-                    posToken = JToken.Parse(inner);
+                    token = JToken.Parse(inner);
             }
 
-            if (posToken.Type != JTokenType.Object)
+            if (token.Type != JTokenType.Object)
                 return null;
 
-            float x = posToken["x"] != null ? posToken["x"].Value<float>() : 0f;
-            float y = posToken["y"] != null ? posToken["y"].Value<float>() : 0f;
-            float z = posToken["z"] != null ? posToken["z"].Value<float>() : 0f;
-
+            float x = token["x"] != null ? token["x"].Value<float>() : 0f;
+            float y = token["y"] != null ? token["y"].Value<float>() : 0f;
+            float z = token["z"] != null ? token["z"].Value<float>() : 0f;
             return new Vector3(x, y, z);
         }
 

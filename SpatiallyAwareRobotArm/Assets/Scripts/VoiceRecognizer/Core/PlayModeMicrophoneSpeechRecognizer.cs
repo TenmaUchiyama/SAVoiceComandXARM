@@ -7,6 +7,7 @@ namespace SA_XARM.SpeechRecognizer
     {
         public event Action<string> OnRecognized;
         public event Action<string> OnError;
+        public event Action OnSilenceTimeout;
 
         [Header("Debug Settings")]
         [SerializeField] private int sampleRate = 16000;

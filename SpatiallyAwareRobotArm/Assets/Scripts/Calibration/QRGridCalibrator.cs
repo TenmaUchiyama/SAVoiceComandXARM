@@ -188,7 +188,7 @@ namespace SA_XARM.Calibration
 
             recordedPoints.Add(new GridPointData
             {
-                id = currentRecordIndex,
+                id = currentRecordIndex.ToString(),
                 gridX = gx,
                 gridY = gy,
                 localPos = localPos

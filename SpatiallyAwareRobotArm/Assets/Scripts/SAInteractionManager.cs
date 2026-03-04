@@ -102,7 +102,7 @@ public class SAInteractionManager : MonoBehaviour
                 Debug.Log("[Action] Pinched Object: " + lastHitObject.name);
                 if(lastHitObject.TryGetComponent(out Grid grid))
                 {
-                    (int x_grid, int y_grid) = grid.GetGridPosition();
+                    (string id , int x_grid, int y_grid) = grid.GetGridPosition();
                     
                     SpatialDebugLog.Instance.Log($"<color=orange>[Action] ピンチしたグリッド座標: ({x_grid}, {y_grid})</color>", doLog);
                     Debug.Log($"[Action] Pinched Grid Position: ({x_grid}, {y_grid})");
