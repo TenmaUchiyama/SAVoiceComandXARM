@@ -63,6 +63,7 @@ namespace SA_XARM.SpatialRef.State
             {
                 webSocketManager.On<SpatialReferenceResult>("spatial_reference_result", OnResultReceived);
                 webSocketManager.On<RobotCommand>("robot_command", OnRobotCommandReceived);
+                webSocketManager.On<ServerErrorMessage>("error", OnServerErrorReceived);
                 webSocketManager.On<ServerErrorMessage>("server_error", OnServerErrorReceived);
             }
         }
@@ -80,6 +81,7 @@ namespace SA_XARM.SpatialRef.State
             {
                 webSocketManager.Off("spatial_reference_result");
                 webSocketManager.Off("robot_command");
+                webSocketManager.Off("error");
                 webSocketManager.Off("server_error");
             }
         }
@@ -101,11 +103,20 @@ namespace SA_XARM.SpatialRef.State
             }
 
             var request = spatialContextProvider.BuildRequest(text, language);
+
+            int objectCount = request?.objects?.Count ?? 0;
+            if (objectCount <= 0)
+            {
+                SetError("空間オブジェクトが0件のため送信を中止しました（ObjectRegistry / SpatialObjects 配置を確認）");
+                Log("Request blocked: objects=0", "red");
+                return;
+            }
+
             _lastRequestId = request.request_id;
 
             SetState(AppState.Processing, "推論中...");
             webSocketManager.Send("spatial_reference_request", request);
-            Log($"Request sent: {request.request_id}", "cyan");
+            Log($"Request sent: {request.request_id}, objects={objectCount}", "cyan");
         }
 
         public void OnResultReceived(SpatialReferenceResult result)
@@ -116,7 +127,9 @@ namespace SA_XARM.SpatialRef.State
                 return;
             }
 
-            _lastTargetObjectId = result.selected_object_id;
+            _lastTargetObjectId = string.IsNullOrWhiteSpace(result.top_candidate_id)
+                ? result.selected_object_id
+                : result.top_candidate_id;
             SetState(AppState.ShowingResult, $"候補: {_lastTargetObjectId}");
             OnResultUpdated?.Invoke(result);
             Log($"Result received: selected={_lastTargetObjectId}", "green");
@@ -201,7 +214,9 @@ namespace SA_XARM.SpatialRef.State
                 SetState(AppState.Executing, $"ロボット状態: {cmd.status}");
             }
 
-            Log($"Robot command received: {cmd.command} ({cmd.status})", "yellow");
+            string actionName = string.IsNullOrWhiteSpace(cmd.action) ? cmd.command : cmd.action;
+            string targetObject = string.IsNullOrWhiteSpace(cmd.target_object_id) ? cmd.object_id : cmd.target_object_id;
+            Log($"Robot command received: action={actionName}, target={targetObject}, status={cmd.status}, message={cmd.message}", "yellow");
         }
 
         public void CancelToIdle()

@@ -7,8 +7,9 @@ dotenv.load_dotenv("../.env")  # .env ファイルから環境変数を読み込
 import asyncio
 import json
 import os
+import time
 import traceback
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any, Tuple
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException
 from contextlib import asynccontextmanager
 from Calculator.AgentObjectSelectorCalculator import *
@@ -74,6 +75,43 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Integrated Spatial Robot Controller", lifespan=lifespan)
 
 SESSION_STORE: Dict[str, SessionContext] = {}
+LAST_SPATIAL_DISCONNECT: Optional[dict] = None
+
+LLM_TIMEOUT_SEC = float(os.getenv("LLM_TIMEOUT_SEC", "10.0"))
+LLM_MAX_RETRIES = max(1, int(os.getenv("LLM_MAX_RETRIES", "3")))
+SESSION_TIMEOUT_SEC = float(os.getenv("SESSION_TIMEOUT_SEC", "300.0"))
+
+
+def _now_epoch() -> float:
+    return time.time()
+
+
+def _prune_expired_sessions() -> int:
+    now = _now_epoch()
+    expired = [
+        request_id
+        for request_id, ctx in SESSION_STORE.items()
+        if now - ctx.last_updated_epoch > SESSION_TIMEOUT_SEC
+    ]
+    for request_id in expired:
+        SESSION_STORE.pop(request_id, None)
+    return len(expired)
+
+
+def _store_session(context: SessionContext):
+    context.last_updated_epoch = _now_epoch()
+    SESSION_STORE[context.request_id] = context
+
+
+def _get_session(request_id: str) -> Optional[SessionContext]:
+    _prune_expired_sessions()
+    context = SESSION_STORE.get(request_id)
+    if context is None:
+        return None
+    if _now_epoch() - context.last_updated_epoch > SESSION_TIMEOUT_SEC:
+        SESSION_STORE.pop(request_id, None)
+        return None
+    return context
 
 
 def _parse_json_message(payload: str) -> dict:
@@ -83,9 +121,92 @@ def _parse_json_message(payload: str) -> dict:
         raise ValueError(f"invalid_json: {exc}") from exc
 
 
+def _decode_spatial_message(payload: str) -> Tuple[dict, bool]:
+    root = _parse_json_message(payload)
+    if not isinstance(root, dict):
+        raise ValueError("E004: message must be object")
+
+    if "eventId" not in root:
+        return root, False
+
+    event_id = str(root.get("eventId") or "").strip()
+    inner = root.get("payload")
+    if isinstance(inner, str):
+        inner = inner.strip()
+        message = _parse_json_message(inner) if inner else {}
+    elif isinstance(inner, dict):
+        message = inner
+    else:
+        message = {}
+
+    if not isinstance(message, dict):
+        raise ValueError("E004: payload must be object")
+    if "type" not in message and event_id:
+        message["type"] = event_id
+    return message, True
+
+
+def _normalize_server_error(response: dict) -> dict:
+    if response.get("type") != "error":
+        return response
+    code = response.get("code") or response.get("error_code") or "E002"
+    return {
+        "type": "error",
+        "request_id": response.get("request_id"),
+        "code": code,
+        "message": response.get("message", "unknown error"),
+    }
+
+
+def _extract_error_code(message: str, default: str = "E004") -> str:
+    if not message:
+        return default
+    code = message.split(":", 1)[0].strip()
+    if len(code) == 4 and code.startswith("E") and code[1:].isdigit():
+        return code
+    return default
+
+
+def _as_unity_packet(response: dict) -> dict:
+    normalized = _normalize_server_error(response)
+    event_id = str(normalized.get("type") or "server_error")
+    return {
+        "eventId": event_id,
+        "payload": json.dumps(normalized, ensure_ascii=False),
+    }
+
+
+def _debug_ws(direction: str, ws_path: str, payload: dict, note: str = ""):
+    try:
+        msg_type = payload.get("type")
+        request_id = payload.get("request_id")
+        status = payload.get("status")
+        code = payload.get("code") or payload.get("error_code")
+        objects = payload.get("objects")
+        parts = [
+            f"dir={direction}",
+            f"path={ws_path}",
+            f"type={msg_type}",
+            f"request_id={request_id}",
+        ]
+        if status:
+            parts.append(f"status={status}")
+        if code:
+            parts.append(f"code={code}")
+        if isinstance(objects, list):
+            parts.append(f"objects_count={len(objects)}")
+        elif "objects" in payload:
+            parts.append(f"objects_type={type(objects).__name__}")
+        if note:
+            parts.append(f"note={note}")
+        print("【WS DEBUG】" + " | ".join(parts))
+    except Exception as exc:
+        print(f"【WS DEBUG】failed to format log: {exc}")
+
+
 def _validate_coordinates(request: SpatialReferenceRequest):
     if not request.objects:
-        raise ValueError("E003: objects is empty")
+        raise ValueError(f"E003: objects is empty (request_id={request.request_id})")
     for item in request.objects:
         values = [item.position.x, item.position.y, item.position.z]
         if any(abs(v) > 100.0 for v in values):
@@ -96,35 +217,120 @@ async def _run_with_timeout(coro, timeout_sec: float):
     return await asyncio.wait_for(coro, timeout=timeout_sec)
 
 
+async def _run_with_retry(func, *args):
+    last_error = None
+    for _ in range(LLM_MAX_RETRIES):
+        try:
+            return await _run_with_timeout(asyncio.to_thread(func, *args), timeout_sec=LLM_TIMEOUT_SEC)
+        except asyncio.TimeoutError as exc:
+            last_error = exc
+            continue
+    raise asyncio.TimeoutError(f"E001: llm timeout after {LLM_MAX_RETRIES} retries") from last_error
+
+
 async def _run_stage1(utterance: str):
-    return await _run_with_timeout(asyncio.to_thread(classify_reference_frame_v2, utterance), timeout_sec=10.0)
+    return await _run_with_retry(classify_reference_frame_v2, utterance)
 
 
 async def _run_stage2(utterance: str, reference_frame: str, features: List[Dict], refinement_context: str = ""):
-    return await _run_with_timeout(
-        asyncio.to_thread(rank_objects_v2, utterance, reference_frame, features, refinement_context),
-        timeout_sec=10.0,
-    )
+    return await _run_with_retry(rank_objects_v2, utterance, reference_frame, features, refinement_context)
 
 
 def _build_result_message(request_id: str, reference_frame: str, ranked_candidates: List[Dict], reasoning: str) -> dict:
     top = ranked_candidates[0] if ranked_candidates else {"object_id": None, "score": 0.0}
+    candidate_rows = [
+        {"object_id": row.get("object_id"), "score": row.get("score", 0.0), "reasoning": row.get("reason", "")} for row in ranked_candidates
+    ]
     return {
         "type": "spatial_reference_result",
         "request_id": request_id,
+        "candidates": candidate_rows,
+        "top_candidate_id": top.get("object_id"),
+        "confidence": top.get("score", 0.0),
+        # backward-compatible fields
+        "selected_object_id": top.get("object_id"),
         "target": {
             "object_id": top.get("object_id"),
             "confidence": top.get("score", 0.0),
             "reference_frame": reference_frame,
         },
-        "ranked_candidates": [
-            {"object_id": row.get("object_id"), "score": row.get("score", 0.0)} for row in ranked_candidates
-        ],
+        "ranked_candidates": candidate_rows,
         "reasoning": reasoning,
     }
 
 
+def _build_robot_command_message(
+    request_id: str,
+    action: str,
+    target_object_id: str,
+    target_position: Dict[str, float],
+    status: str,
+    message: str = "",
+) -> dict:
+    return {
+        "type": "robot_command",
+        "request_id": request_id,
+        "action": action,
+        "target_object_id": target_object_id,
+        "target_position": target_position,
+        "status": status,
+        "message": message,
+    }
+
+
+async def _route_spatial_message(message: dict) -> Any:
+    try:
+        msg_type = message.get("type")
+        print(f"【Server】_route_spatial_message: type={msg_type}, request_id={message.get('request_id')}")
+        if msg_type == "spatial_reference_request":
+            req = SpatialReferenceRequest(**message)
+            return await _process_spatial_reference_request(req)
+        if msg_type == "refinement_request":
+            req = RefinementRequest(**message)
+            return await _process_refinement_request(req)
+        if msg_type == "confirmation":
+            req = ConfirmationRequest(**message)
+            return await _process_confirmation_request(req)
+        print(f"【Server】unsupported message type: {msg_type}")
+        return {
+            "type": "error",
+            "request_id": message.get("request_id"),
+            "code": "E004",
+            "message": f"unsupported message type: {msg_type}",
+        }
+    except ValueError as exc:
+        print(f"【Server】Spatial ValueError: {exc}")
+        traceback.print_exc()
+        msg = str(exc)
+        error_code = _extract_error_code(msg, default="E004")
+        error_message = msg.split(":", 1)[1].strip() if ":" in msg else msg
+        return {
+            "type": "error",
+            "request_id": message.get("request_id"),
+            "code": error_code,
+            "message": error_message,
+        }
+    except asyncio.TimeoutError as exc:
+        print(f"【Server】Spatial TimeoutError: {exc}")
+        return {
+            "type": "error",
+            "request_id": message.get("request_id"),
+            "code": "E001",
+            "message": str(exc),
+        }
+    except Exception as exc:
+        print(f"【Server】Spatial Exception ({type(exc).__name__}): {exc}")
+        traceback.print_exc()
+        return {
+            "type": "error",
+            "request_id": message.get("request_id"),
+            "code": "E002",
+            "message": str(exc),
+        }
+
+
 async def _process_spatial_reference_request(request_data: SpatialReferenceRequest) -> dict:
+    _prune_expired_sessions()
     _validate_coordinates(request_data)
     frame_decision = await _run_stage1(request_data.utterance.text)
     reference_frame = frame_decision.reference_frame
@@ -142,10 +348,12 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
             {"object_id": row.object_id, "score": row.score, "reason": row.reason}
             for row in stage2.ranked_objects
         ]
+    except asyncio.TimeoutError:
+        raise
     except Exception:
         ranked_candidates = apply_fallback_ranking(request_data.utterance.text, features)
 
-    SESSION_STORE[request_data.request_id] = SessionContext(
+    _store_session(SessionContext(
         request_id=request_data.request_id,
         utterance=request_data.utterance.text,
         reference_frame=reference_frame,
@@ -153,7 +361,8 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
         user_pose=request_data.user_pose,
         robot_pose=request_data.robot_pose,
         ranked_candidates=ranked_candidates,
-    )
+        last_updated_epoch=_now_epoch(),
+    ))
 
     return _build_result_message(
         request_id=request_data.request_id,
@@ -164,12 +373,12 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
 
 
 async def _process_refinement_request(request_data: RefinementRequest) -> dict:
-    previous = SESSION_STORE.get(request_data.original_request_id)
+    previous = _get_session(request_data.original_request_id)
     if previous is None:
         return {
             "type": "error",
             "request_id": request_data.request_id,
-            "error_code": "E006",
+            "code": "E006",
             "message": "session expired or unknown original_request_id",
         }
 
@@ -190,10 +399,12 @@ async def _process_refinement_request(request_data: RefinementRequest) -> dict:
             {"object_id": row.object_id, "score": row.score, "reason": row.reason}
             for row in stage2.ranked_objects
         ]
+    except asyncio.TimeoutError:
+        raise
     except Exception:
         ranked_candidates = apply_fallback_ranking(request_data.utterance.text, features, request_data.previous_target)
 
-    SESSION_STORE[request_data.request_id] = SessionContext(
+    _store_session(SessionContext(
         request_id=request_data.request_id,
         utterance=request_data.utterance.text,
         reference_frame=reference_frame,
@@ -201,7 +412,8 @@ async def _process_refinement_request(request_data: RefinementRequest) -> dict:
         user_pose=user_pose,
         robot_pose=previous.robot_pose,
         ranked_candidates=ranked_candidates,
-    )
+        last_updated_epoch=_now_epoch(),
+    ))
 
     return _build_result_message(
         request_id=request_data.request_id,
@@ -211,46 +423,67 @@ async def _process_refinement_request(request_data: RefinementRequest) -> dict:
     )
 
 
-async def _process_confirmation_request(request_data: ConfirmationRequest) -> dict:
-    session = SESSION_STORE.get(request_data.request_id)
+async def _process_confirmation_request(request_data: ConfirmationRequest) -> List[dict]:
+    session_request_id = request_data.original_request_id or request_data.request_id
+    session = _get_session(session_request_id)
     if session is None:
-        return {
+        return [{
             "type": "error",
             "request_id": request_data.request_id,
-            "error_code": "E006",
-            "message": "session expired or unknown request_id",
-        }
+            "code": "E006",
+            "message": "session expired or unknown request_id/original_request_id",
+        }]
 
     target = next((obj for obj in session.objects if obj.id == request_data.confirmed_object_id), None)
     if target is None:
-        return {
+        return [{
             "type": "error",
             "request_id": request_data.request_id,
-            "error_code": "E004",
+            "code": "E004",
             "message": "invalid confirmed_object_id",
-        }
+        }]
 
-    command = {
-        "type": "robot_command",
-        "request_id": request_data.request_id,
-        "action": request_data.action,
-        "target_object_id": target.id,
-        "target_position": {
-            "x": target.position.x,
-            "y": target.position.y,
-            "z": target.position.z,
-        },
-        "status": "executing",
+    target_position = {
+        "x": target.position.x,
+        "y": target.position.y,
+        "z": target.position.z,
     }
+
+    started = _build_robot_command_message(
+        request_id=request_data.request_id,
+        action=request_data.action,
+        target_object_id=target.id,
+        target_position=target_position,
+        status="started",
+        message="robot action started",
+    )
+
+    final_status = "completed"
+    final_message = "robot action completed"
 
     if robot is not None and request_data.action == "pick":
         try:
-            robot.pick_at(target.position.x, target.position.y)
+            ok, msg = robot.pick_at(target.position.x, target.position.y)
+            if not ok:
+                final_status = "failed"
+                final_message = msg
         except Exception as exc:
-            command["status"] = "failed"
-            command["error"] = str(exc)
+            final_status = "failed"
+            final_message = str(exc)
+    elif robot is None and request_data.action == "pick":
+        final_status = "failed"
+        final_message = "robot is not connected"
 
-    return command
+    final = _build_robot_command_message(
+        request_id=request_data.request_id,
+        action=request_data.action,
+        target_object_id=target.id,
+        target_position=target_position,
+        status=final_status,
+        message=final_message,
+    )
+
+    return [started, final]
 
 
 
@@ -517,6 +750,7 @@ async def calibration_api():
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     print("【Server】Unity接続完了")
+    latest_spatial_request_id: Optional[str] = None
     try:
         while True:
             # Unityからのメッセージ受信
@@ -528,9 +762,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(json.dumps({"eventId": "KeepAlive", "payload": "{}"}))
                 continue
 
-            message = json.loads(data)
+            message = _parse_json_message(data)
             
-            if message.get("eventId") == "SaveGridConfig":
+            event_id = message.get("eventId")
+
+            if event_id == "SaveGridConfig":
                 grid_data = json.loads(message.get("payload", "{}"))
                 filename = save_grid_to_file(grid_data)
                 
@@ -541,7 +777,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 }
                 await websocket.send_text(json.dumps(response))
             
-            if message.get("eventId") == "SaveRobotMarkerConfig":
+            elif event_id == "SaveRobotMarkerConfig":
                 marker_data = json.loads(message.get("payload", "{}"))
                 filename = save_robot_marker_config(marker_data)
                 
@@ -552,17 +788,58 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(json.dumps(response))
                 print(f"【Server】ロボットマーカー設定を保存しました: {filename}")
             
-            if message.get("eventId") == "XarmPick":
+            elif event_id == "XarmPick":
                 payload = json.loads(message.get("payload", "{}"))
                 x = payload.get("x")
                 y = payload.get("y")
 
-                result =  robot.pick_at(x, y)
+                if robot is not None:
+                    try:
+                        ok, msg = robot.pick_at(x, y)
+                        result_payload = {"success": ok, "message": msg}
+                    except Exception as exc:
+                        result_payload = {"success": False, "message": str(exc)}
+                else:
+                    result_payload = {"success": False, "message": "robot is not connected"}
 
                 await websocket.send_text(json.dumps({
                     "eventId": "XarmPickResult",
-                    "payload": result
+                    "payload": json.dumps(result_payload)
                 }))
+
+            elif event_id in {"spatial_reference_request", "refinement_request", "confirmation"}:
+                payload = message.get("payload", "{}")
+                if isinstance(payload, str):
+                    spatial_message = _parse_json_message(payload) if payload.strip() else {}
+                elif isinstance(payload, dict):
+                    spatial_message = payload
+                else:
+                    spatial_message = {}
+
+                if "type" not in spatial_message:
+                    spatial_message["type"] = message.get("eventId")
+
+                if spatial_message.get("type") in {"spatial_reference_request", "refinement_request"}:
+                    request_id = spatial_message.get("request_id")
+                    if isinstance(request_id, str) and request_id:
+                        latest_spatial_request_id = request_id
+
+                if spatial_message.get("type") == "confirmation":
+                    if not spatial_message.get("original_request_id") and latest_spatial_request_id:
+                        spatial_message["original_request_id"] = latest_spatial_request_id
+                        _debug_ws("server", "/", spatial_message, note="filled original_request_id from latest session")
+
+                _debug_ws("unity->server", "/", spatial_message, note=f"eventId={event_id}")
+                response = await _route_spatial_message(spatial_message)
+
+                response_list = response if isinstance(response, list) else [response]
+                for item in response_list:
+                    packet = _as_unity_packet(item)
+                    _debug_ws("server->unity", "/", item, note=f"eventId={packet.get('eventId')}")
+                    await websocket.send_text(json.dumps(packet, ensure_ascii=False))
+
+            else:
+                print(f"【Server】WS unhandled eventId: {event_id}")
                 
     except WebSocketDisconnect as e:
         manager.disconnect(websocket)
@@ -574,43 +851,56 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.websocket("/spatial")
 async def spatial_ws_endpoint(websocket: WebSocket):
+    global LAST_SPATIAL_DISCONNECT
     await websocket.accept()
+    latest_spatial_request_id: Optional[str] = None
     try:
         while True:
-            raw = await websocket.receive_text()
+            _prune_expired_sessions()
             try:
-                message = _parse_json_message(raw)
-                msg_type = message.get("type")
-                if msg_type == "spatial_reference_request":
-                    req = SpatialReferenceRequest(**message)
-                    response = await _process_spatial_reference_request(req)
-                elif msg_type == "refinement_request":
-                    req = RefinementRequest(**message)
-                    response = await _process_refinement_request(req)
-                elif msg_type == "confirmation":
-                    req = ConfirmationRequest(**message)
-                    response = await _process_confirmation_request(req)
-                else:
-                    response = {
-                        "type": "error",
-                        "error_code": "E004",
-                        "message": f"unsupported message type: {msg_type}",
-                    }
-            except ValueError as exc:
-                response = {
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=SESSION_TIMEOUT_SEC)
+            except asyncio.TimeoutError:
+                timeout_error = {
                     "type": "error",
-                    "error_code": "E004",
-                    "message": str(exc),
+                    "code": "E006",
+                    "message": "session timeout",
                 }
-            except Exception as exc:
-                response = {
-                    "type": "error",
-                    "error_code": "E002",
-                    "message": str(exc),
-                }
+                _debug_ws("server->unity", "/spatial", timeout_error, note="closing socket due to inactivity")
+                await websocket.send_text(json.dumps(timeout_error, ensure_ascii=False))
+                await websocket.close(code=1001, reason="session timeout")
+                return
 
-            await websocket.send_text(json.dumps(response, ensure_ascii=False))
-    except WebSocketDisconnect:
+            message, needs_packet = _decode_spatial_message(raw)
+
+            if message.get("type") in {"spatial_reference_request", "refinement_request"}:
+                request_id = message.get("request_id")
+                if isinstance(request_id, str) and request_id:
+                    latest_spatial_request_id = request_id
+
+            if message.get("type") == "confirmation":
+                if not message.get("original_request_id") and latest_spatial_request_id:
+                    message["original_request_id"] = latest_spatial_request_id
+                    _debug_ws("server", "/spatial", message, note="filled original_request_id from latest session")
+
+            _debug_ws("unity->server", "/spatial", message)
+            response = await _route_spatial_message(message)
+
+            LAST_SPATIAL_DISCONNECT = None
+            response_list = response if isinstance(response, list) else [response]
+            for item in response_list:
+                _debug_ws("server->unity", "/spatial", item)
+                if needs_packet:
+                    await websocket.send_text(json.dumps(_as_unity_packet(item), ensure_ascii=False))
+                else:
+                    await websocket.send_text(json.dumps(item, ensure_ascii=False))
+    except WebSocketDisconnect as exc:
+        LAST_SPATIAL_DISCONNECT = {
+            "type": "error",
+            "code": "E005",
+            "message": "spatial websocket disconnected",
+            "ws_close_code": getattr(exc, "code", None),
+            "timestamp": _now_epoch(),
+        }
         return
 
 
@@ -620,11 +910,15 @@ async def status_ws_endpoint(websocket: WebSocket):
     try:
         while True:
             await websocket.receive_text()
+            _prune_expired_sessions()
             status = {
                 "type": "status",
                 "active_sessions": len(SESSION_STORE),
                 "robot_enabled": robot is not None,
+                "session_timeout_sec": SESSION_TIMEOUT_SEC,
             }
+            if LAST_SPATIAL_DISCONNECT is not None:
+                status["last_error"] = LAST_SPATIAL_DISCONNECT
             await websocket.send_text(json.dumps(status, ensure_ascii=False))
     except WebSocketDisconnect:
         return

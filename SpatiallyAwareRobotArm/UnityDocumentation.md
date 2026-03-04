@@ -2,7 +2,7 @@
 
 **User-Centric Spatial Referring for Tabletop Robot Manipulation with MR Grounding and LLMs**
 
-- **バージョン**: 1.0
+- **バージョン**: 1.1
 - **作成日**: 2026-03-02
 - **対象プラットフォーム**: HoloLens 2 (UWP / ARM64)
 - **Unity バージョン**: 2022.3 LTS 以上
@@ -22,6 +22,7 @@
    - 4.5 [MR 表示層: MRVisualizationManager](#45-mr-表示層-mrvisualizationmanager)
    - 4.6 [物体管理: ObjectRegistry](#46-物体管理-objectregistry)
    - 4.7 [ロボット連携: RobotCommandHandler](#47-ロボット連携-robotcommandhandler)
+   - 4.8 [空間物体コンポーネント: SpatialObject](#48-空間物体コンポーネント-spatialobject)
 5. [アプリ状態遷移](#5-アプリ状態遷移)
 6. [送受信メッセージの組み立て](#6-送受信メッセージの組み立て)
 7. [QR グリッドによる物体位置取得](#7-qr-グリッドによる物体位置取得)
@@ -36,14 +37,14 @@
 
 Unity アプリは **HoloLens 2** 上で動作する MR フロントエンドである。役割は以下の通り。
 
-| 責務 | 詳細 |
-|---|---|
-| 空間データ収集 | ユーザー姿勢・物体位置・ロボット位置をテーブル座標系で取得 |
-| 音声入力 | MRTK の音声認識で発話をテキスト化し LLM サーバーへ送信 |
+| 責務             | 詳細                                                       |
+| ---------------- | ---------------------------------------------------------- |
+| 空間データ収集   | ユーザー姿勢・物体位置・ロボット位置をテーブル座標系で取得 |
+| 音声入力         | MRTK の音声認識で発話をテキスト化し LLM サーバーへ送信     |
 | 推論結果の可視化 | サーバーから返ってきたターゲット候補を MR ホログラムで表示 |
-| ユーザー確認 | 音声または視線 + エアタップで物体選択を確認 |
-| リファインメント | 不一致時に修正発話を再送信 |
-| ロボット指令受信 | `robot_command` を受け取りアーム動作ステータスを表示 |
+| ユーザー確認     | 音声または視線 + エアタップで物体選択を確認                |
+| リファインメント | 不一致時に修正発話を再送信                                 |
+| ロボット指令受信 | `robot_command` を受け取りアーム動作ステータスを表示       |
 
 ---
 
@@ -86,10 +87,10 @@ HoloLens 2 (Unity)
 
 ### 推奨シーン
 
-| シーン名 | 用途 |
-|---|---|
+| シーン名    | 用途                               |
+| ----------- | ---------------------------------- |
 | `Bootstrap` | 設定読み込み・接続確立・シーン遷移 |
-| `Main` | メインの MR 操作シーン |
+| `Main`      | メインの MR 操作シーン             |
 
 ### Main シーン内 GameObject 階層
 
@@ -105,7 +106,6 @@ HoloLens 2 (Unity)
 │   ├── ObjectRegistry
 │   ├── MRVisualizationManager
 │   └── RobotCommandHandler
-├── TableAnchor                    # QR マーカー検出後に配置するテーブル原点
 ├── ObjectHologramsRoot            # 物体ホログラムの親
 └── UI
     ├── StatusHUD
@@ -139,6 +139,7 @@ public class WebSocketClient : MonoBehaviour
 ```
 
 **実装方針**
+
 - `NativeWebSocket` または `WebSocketSharp` ライブラリを使用（UWP 対応）
 - `UnityMainThreadDispatcher` で受信コールバックをメインスレッドに移送
 - 切断時はセッション ID を保持し再接続後に継続可能
@@ -155,9 +156,6 @@ public class SpatialContextProvider : MonoBehaviour
     // ユーザー姿勢（HoloLens カメラ Transform）
     public UserPose GetUserPose();
 
-    // テーブルフレーム（QR マーカー検出後に更新）
-    public TableFrame GetTableFrame();
-
     // ロボット姿勢（QR アンカー or 手動設定）
     public RobotPose GetRobotPose();
 
@@ -168,10 +166,6 @@ public class SpatialContextProvider : MonoBehaviour
     public SpatialReferenceRequest BuildRequest(string utteranceText, string language = "ja");
 }
 ```
-
-**座標変換**
-- HoloLens のワールド座標系 → テーブル座標系への変換は `TableAnchor` の逆行列を使用
-- `table_frame` は QR マーカー検出で確定した Transform から自動算出
 
 ---
 
@@ -193,6 +187,7 @@ public class VoiceCommandHandler : MonoBehaviour
 ```
 
 **フロー**
+
 1. 音声認識が発話テキストを返す
 2. `AppStateManager.OnUtteranceReceived(text)` を呼び出す
 3. `AppStateManager` が `SpatialContextProvider.BuildRequest()` でリクエストを組み立て
@@ -253,13 +248,13 @@ public class MRVisualizationManager : MonoBehaviour
 
 **可視化方針**
 
-| 状態 | 表示 |
-|---|---|
-| 候補 Top 1 | 緑色の枠 + スコア（例: 92%） |
-| 候補 Top 2〜 | 黄色の半透明枠 |
-| 確認パネル | 物体名・理由・「はい」「いいえ」音声コマンド |
-| 処理中 | ローディングスピナー（StatusHUD） |
-| エラー | 赤色のアラートバナー |
+| 状態         | 表示                                         |
+| ------------ | -------------------------------------------- |
+| 候補 Top 1   | 緑色の枠 + スコア（例: 92%）                 |
+| 候補 Top 2〜 | 黄色の半透明枠                               |
+| 確認パネル   | 物体名・理由・「はい」「いいえ」音声コマンド |
+| 処理中       | ローディングスピナー（StatusHUD）            |
+| エラー       | 赤色のアラートバナー                         |
 
 ---
 
@@ -282,6 +277,7 @@ public class ObjectRegistry : MonoBehaviour
 ```
 
 **物体位置の取得方法**（既存 QR グリッド構成を流用）
+
 - `qr_grid_config.json` の各セルに対応した QR コードを HoloLens が検出
 - 各セルの `WorldAnchor` からテーブル座標系上の位置を算出
 - MR オーバーレイ（ラベル・カラー情報）を付与してホログラムとして表示
@@ -304,6 +300,82 @@ public class RobotCommandHandler : MonoBehaviour
     private void UpdateStatusDisplay(string status);
 }
 ```
+
+## 4.8 空間物体コンポーネント: `SpatialObject`
+
+各物体ホログラム GameObject にアタッチするコンポーネント。物体の属性データを保持し、ハイライト制御・空間計算などのユーティリティを提供する。`ObjectRegistry` を経由せずに直接アクセスできるため、レイキャストやエアタップのヒット時の処理がシンプルになる。
+
+#### 属性パラメータ
+
+```csharp
+[RequireComponent(typeof(MeshRenderer))]
+public class SpatialObject : MonoBehaviour
+{
+    // --- 識別 ---
+    public string Id { get; private set; }          // "obj_001"
+
+    // --- 視覚属性 ---
+    public string Label { get; private set; }    // "bottle" / "box" など
+    public string Color { get; private set; }    // "red" / "blue" など
+
+    // --- 空間属性 ---
+    public Vector3 Position { get; private set; }   // テーブル座標系での位置
+
+    // --- 状態 ---
+    public bool IsHighlighted { get; private set; }
+}
+
+```
+
+#### 初期化
+
+```csharp
+// ObjectRegistry から呼び出す
+public void Initialize(ObjectData data)
+{
+    Id       = data.id;
+    Label    = data.label;
+    Color    = data.color;
+    Position = data.position.ToVector3();
+}
+```
+
+#### ハイライト制御
+
+```csharp
+// MRVisualizationManager から呼び出す
+public void Highlight();    // マテリアルをハイライト色に切り替え
+public void Unhighlight();  // マテリアルをデフォルトに戻す
+```
+
+#### ラベル表示
+
+```csharp
+public void ShowLabel(string overrideText = null);  // 引数なしなら Label を表示
+public void HideLabel();
+```
+
+#### 空間ユーティリティ
+
+```csharp
+// ビューワー（ユーザー視点）から見た相対方向を返す
+// LLM への空間記述生成や候補フィルタリングに使用する
+// 例: "left" / "right" / "front" / "back" / "front-left" など
+public string GetDirectionFrom(Vector3 viewerPosition, Vector3 viewerForward);
+
+// 指定点との距離を返す（テーブル座標系）
+public float GetDistanceTo(Vector3 point);
+
+// ロボットのリーチ圏内かどうかを判定する
+public bool IsReachableBy(Vector3 robotPosition, float reachRadius);
+
+// サーバー送信用 DTO に変換する
+public ObjectData ToObjectData();
+```
+
+**`GetDirectionFrom` の使いどころ**
+
+`SpatialContextProvider.BuildRequest()` 内で各物体に対して呼び出し、`ObjectData` に `relative_direction` フィールドとして付与することで、LLM が「ユーザーから見て左側にある赤いボトル」のような表現を正確に解釈しやすくなる。
 
 ---
 
@@ -351,10 +423,9 @@ var request = new SpatialReferenceRequest
     request_id = System.Guid.NewGuid().ToString(),
     timestamp = System.DateTime.UtcNow.ToString("o"),
     utterance = new Utterance { text = utteranceText, language = "ja" },
-    user_pose = GetUserPose(),        // カメラ Transform から変換
-    objects = GetObjects(),           // ObjectRegistry から取得
-    table_frame = GetTableFrame(),    // QR マーカー起点
-    robot_pose = GetRobotPose()       // ロボット QR アンカー
+    user_pose = GetUserPose(),   // カメラ Transform から変換
+    objects = GetObjects(),      // ObjectRegistry から取得
+    robot_pose = GetRobotPose()  // ロボット QR アンカー
 };
 return JsonUtility.ToJson(request);
 ```
@@ -418,8 +489,6 @@ void RouteMessage(string json)
 1. アプリ起動後、テーブル上の QR コードを HoloLens でスキャン
 2. QR コード ID と grid_pose_map.json を照合してセル位置を特定
 3. 各セルに物体ホログラム (ラベル + バウンディングボックス) を配置
-4. テーブル原点 QR マーカーを TableAnchor として登録
-5. 以降の全座標は TableAnchor 相対座標系で計算
 ```
 
 ### `ObjectData` の構造（サーバー送信用）
@@ -428,11 +497,13 @@ void RouteMessage(string json)
 [Serializable]
 public class ObjectData
 {
-    public string id;          // "obj_001"
-    public string label;       // "box"
-    public string color;       // "red"
-    public Vec3 position;      // テーブル座標系
-    public BoundingBox bounding_box;
+    public string id;                   // "obj_001"
+    public string label;                // "bottle"
+    public string color;                // "red"
+    public string shape;                // "cylinder"
+    public string size;                 // "small" / "medium" / "large"
+    public Vec3   position;             // テーブル座標系
+    public string relative_direction;   // "left" / "front-right" など（SpatialObject.GetDirectionFrom() で算出）
 }
 ```
 
@@ -442,22 +513,22 @@ public class ObjectData
 
 ### 音声コマンド一覧
 
-| 発話 | アクション |
-|---|---|
-| 任意の自然文発話 | `spatial_reference_request` を送信 |
-| 「はい」「そう」「合ってる」 | `confirmation` を送信（action: pick） |
-| 「違う」「別のやつ」「もっと〜」 | `refinement_request` を送信 |
-| 「キャンセル」「やめて」 | `Idle` 状態に戻る |
+| 発話                             | アクション                            |
+| -------------------------------- | ------------------------------------- |
+| 任意の自然文発話                 | `spatial_reference_request` を送信    |
+| 「はい」「そう」「合ってる」     | `confirmation` を送信（action: pick） |
+| 「違う」「別のやつ」「もっと〜」 | `refinement_request` を送信           |
+| 「キャンセル」「やめて」         | `Idle` 状態に戻る                     |
 
 ### StatusHUD の表示内容
 
-| 状態 | 表示メッセージ例 |
-|---|---|
-| Listening | 🎤 聞いています... |
-| Processing | ⏳ 推論中... |
+| 状態          | 表示メッセージ例            |
+| ------------- | --------------------------- |
+| Listening     | 🎤 聞いています...          |
+| Processing    | ⏳ 推論中...                |
 | ShowingResult | ✅ 対象: 赤いボックス (92%) |
-| Executing | 🤖 ロボット動作中 |
-| Error | ⚠️ エラー: タイムアウト |
+| Executing     | 🤖 ロボット動作中           |
+| Error         | ⚠️ エラー: タイムアウト     |
 
 ### 候補物体の可視化
 
@@ -542,14 +613,14 @@ public class AppConfig : ScriptableObject
 
 ## 11. エラーハンドリング
 
-| サーバーエラーコード | Unity 側の対応 |
-|---|---|
-| E001 (LLM タイムアウト) | StatusHUD に「タイムアウト、もう一度試してください」表示し Idle へ |
-| E002 (パース失敗) | StatusHUD に「認識失敗」表示し Idle へ |
-| E003 (物体なし) | StatusHUD に「テーブル上に物体が検出されません」表示 |
-| E004 (無効座標) | 再スキャンを促すガイド表示 |
-| E005 (WS 切断) | 自動再接続、接続中は Processing スピナー継続 |
-| E006 (セッション期限切れ) | Bootstrap シーンに戻り再初期化 |
+| サーバーエラーコード      | Unity 側の対応                                                     |
+| ------------------------- | ------------------------------------------------------------------ |
+| E001 (LLM タイムアウト)   | StatusHUD に「タイムアウト、もう一度試してください」表示し Idle へ |
+| E002 (パース失敗)         | StatusHUD に「認識失敗」表示し Idle へ                             |
+| E003 (物体なし)           | StatusHUD に「テーブル上に物体が検出されません」表示               |
+| E004 (無効座標)           | 再スキャンを促すガイド表示                                         |
+| E005 (WS 切断)            | 自動再接続、接続中は Processing スピナー継続                       |
+| E006 (セッション期限切れ) | Bootstrap シーンに戻り再初期化                                     |
 
 ### 接続失敗時のフォールバック
 
@@ -561,10 +632,10 @@ public class AppConfig : ScriptableObject
 
 ## 依存ライブラリ・パッケージ
 
-| パッケージ | 用途 |
-|---|---|
-| MRTK3 (Mixed Reality Toolkit) | HoloLens 入力・UI・音声認識 |
-| Microsoft.MixedReality.QR | QR コード検出 |
-| NativeWebSocket または websocket-sharp | WebSocket 通信 |
-| Newtonsoft.Json (Json.NET) | JSON シリアライズ（`JsonUtility` の代替として推奨） |
-| UnityMainThreadDispatcher | WebSocket スレッドからメインスレッドへのコールバック移送 |
+| パッケージ                             | 用途                                                     |
+| -------------------------------------- | -------------------------------------------------------- |
+| MRTK3 (Mixed Reality Toolkit)          | HoloLens 入力・UI・音声認識                              |
+| Microsoft.MixedReality.QR              | QR コード検出                                            |
+| NativeWebSocket または websocket-sharp | WebSocket 通信                                           |
+| Newtonsoft.Json (Json.NET)             | JSON シリアライズ（`JsonUtility` の代替として推奨）      |
+| UnityMainThreadDispatcher              | WebSocket スレッドからメインスレッドへのコールバック移送 |

@@ -37,17 +37,6 @@ namespace SA_XARM.SpatialRef.Spatial
             };
         }
 
-        public TableFrame GetTableFrame()
-        {
-            return new TableFrame
-            {
-                origin = new Vec3(0f, 0f, 0f),
-                x_axis = new Vec3(1f, 0f, 0f),
-                y_axis = new Vec3(0f, 1f, 0f),
-                z_axis = new Vec3(0f, 0f, 1f)
-            };
-        }
-
         public RobotPose GetRobotPose()
         {
             if (robotAnchor == null)
@@ -85,7 +74,6 @@ namespace SA_XARM.SpatialRef.Spatial
                 },
                 user_pose = GetUserPose(),
                 objects = GetObjects(),
-                table_frame = GetTableFrame(),
                 robot_pose = GetRobotPose()
             };
         }

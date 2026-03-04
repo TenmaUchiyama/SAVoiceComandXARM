@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator, validator
 
 
 class Vec3Model(BaseModel):
@@ -13,9 +13,49 @@ class Vec3Model(BaseModel):
     z: float
 
 
+class BoundingBoxModel(BaseModel):
+    min: Vec3Model
+    max: Vec3Model
+
+
+class TableFrameModel(BaseModel):
+    origin: Vec3Model
+    x_axis: Vec3Model
+    z_axis: Vec3Model
+
+
 class UtteranceModel(BaseModel):
     text: str
     language: str = "ja"
+
+    @root_validator(pre=True)
+    def normalize_input(cls, values: Any) -> Any:
+        if isinstance(values, str):
+            return {"text": values, "language": "ja"}
+        if not isinstance(values, dict):
+            return values
+
+        language = values.get("language") or values.get("lang") or values.get("locale") or "ja"
+        text = values.get("text")
+        if text is None:
+            text = values.get("utterance")
+        return {"text": text, "language": language}
+
+    @validator("text", pre=True)
+    def normalize_text(cls, value: Any) -> str:
+        if value is None:
+            raise ValueError("utterance.text is required")
+        text = str(value).strip()
+        if not text:
+            raise ValueError("utterance.text must not be empty")
+        return text
+
+    @validator("language", pre=True, always=True)
+    def normalize_language(cls, value: Any) -> str:
+        if value is None:
+            return "ja"
+        language = str(value).strip()
+        return language or "ja"
 
 
 class UserPoseModel(BaseModel):
@@ -33,6 +73,10 @@ class ObjectModel(BaseModel):
     id: str
     label: str = "unknown"
     color: str = "unknown"
+    shape: Optional[str] = None
+    size: Optional[str] = None
+    relative_direction: Optional[str] = None
+    bounding_box: Optional[BoundingBoxModel] = None
     position: Vec3Model
 
 
@@ -43,7 +87,21 @@ class SpatialReferenceRequest(BaseModel):
     utterance: UtteranceModel
     user_pose: UserPoseModel
     objects: List[ObjectModel] = Field(default_factory=list)
+    table_frame: Optional[TableFrameModel] = None
     robot_pose: Optional[RobotPoseModel] = None
+
+    @root_validator(pre=True)
+    def normalize_legacy_utterance(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if values.get("utterance") is not None:
+            return values
+
+        legacy_text = values.get("utterance_text") or values.get("text")
+        if legacy_text is not None:
+            values["utterance"] = {
+                "text": legacy_text,
+                "language": values.get("language", "ja"),
+            }
+        return values
 
 
 class RefinementRequest(BaseModel):
@@ -54,10 +112,24 @@ class RefinementRequest(BaseModel):
     user_pose: Optional[UserPoseModel] = None
     previous_target: Optional[str] = None
 
+    @root_validator(pre=True)
+    def normalize_legacy_utterance(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if values.get("utterance") is not None:
+            return values
+
+        legacy_text = values.get("utterance_text") or values.get("text")
+        if legacy_text is not None:
+            values["utterance"] = {
+                "text": legacy_text,
+                "language": values.get("language", "ja"),
+            }
+        return values
+
 
 class ConfirmationRequest(BaseModel):
     type: Literal["confirmation"]
     request_id: str
+    original_request_id: Optional[str] = None
     confirmed_object_id: str
     action: str = "pick"
 
@@ -74,6 +146,7 @@ class SessionContext:
     user_pose: UserPoseModel
     robot_pose: Optional[RobotPoseModel]
     ranked_candidates: List[Dict]
+    last_updated_epoch: float
 
 
 KEYWORD_MAP = {
@@ -86,6 +159,8 @@ KEYWORD_MAP = {
 
 
 COLORS = ["red", "blue", "green", "yellow", "white", "black", "orange", "purple"]
+SHAPES = ["box", "cube", "bottle", "cylinder", "cup", "can", "sphere"]
+SIZES = ["small", "medium", "large"]
 
 
 def to_v3(value: Vec3Model) -> Vec3:
@@ -165,6 +240,9 @@ def compute_spatial_features(
                 "object_id": item.id,
                 "label": item.label,
                 "color": item.color,
+                "shape": item.shape,
+                "size": item.size,
+                "relative_direction_hint": item.relative_direction,
                 "cluster_id": int(round(world_pos[2] / 0.10)),
                 "relative_x": round(relative_x, 4),
                 "relative_y": round(relative_y, 4),
@@ -204,6 +282,18 @@ def apply_fallback_ranking(
             color_filtered = [row for row in candidates if row.get("color", "").lower() == color]
             if color_filtered:
                 candidates = color_filtered
+
+    for shape in SHAPES:
+        if shape in text:
+            shape_filtered = [row for row in candidates if str(row.get("shape") or "").lower() == shape]
+            if shape_filtered:
+                candidates = shape_filtered
+
+    for size in SIZES:
+        if size in text:
+            size_filtered = [row for row in candidates if str(row.get("size") or "").lower() == size]
+            if size_filtered:
+                candidates = size_filtered
 
     if _contains_any(text, KEYWORD_MAP["right"]):
         candidates.sort(key=lambda row: row["relative_x"], reverse=True)

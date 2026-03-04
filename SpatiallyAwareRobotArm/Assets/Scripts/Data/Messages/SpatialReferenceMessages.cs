@@ -48,26 +48,10 @@ namespace SA_XARM.SpatialRef.Data
     }
 
     [Serializable]
-    public class TableFrame
-    {
-        public Vec3 origin;
-        public Vec3 x_axis;
-        public Vec3 y_axis;
-        public Vec3 z_axis;
-    }
-
-    [Serializable]
     public class RobotPose
     {
         public Vec3 position;
         public Vec3 forward;
-    }
-
-    [Serializable]
-    public class BoundingBox
-    {
-        public Vec3 center;
-        public Vec3 size;
     }
 
     [Serializable]
@@ -77,7 +61,6 @@ namespace SA_XARM.SpatialRef.Data
         public string label;
         public string color;
         public Vec3 position;
-        public BoundingBox bounding_box;
     }
 
     [Serializable]
@@ -88,7 +71,6 @@ namespace SA_XARM.SpatialRef.Data
         public Utterance utterance;
         public UserPose user_pose;
         public List<ObjectData> objects;
-        public TableFrame table_frame;
         public RobotPose robot_pose;
 
         public SpatialReferenceRequest()
@@ -102,6 +84,7 @@ namespace SA_XARM.SpatialRef.Data
     {
         public string object_id;
         public float score;
+        public string reasoning;
         public string reason;
     }
 
@@ -109,6 +92,8 @@ namespace SA_XARM.SpatialRef.Data
     public class SpatialReferenceResult : BaseMessage
     {
         public string request_id;
+        public string top_candidate_id;
+        public float confidence;
         public string selected_object_id;
         public string reasoning;
         public List<RankedCandidate> candidates;
@@ -147,9 +132,12 @@ namespace SA_XARM.SpatialRef.Data
     public class RobotCommand : BaseMessage
     {
         public string request_id;
+        public string action;
+        public string target_object_id;
         public string object_id;
         public string command;
         public string status;
+        public string message;
         public Vec3 target_position;
     }
 

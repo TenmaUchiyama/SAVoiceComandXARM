@@ -7,11 +7,10 @@ namespace SA_XARM.SpatialRef.Spatial
 {
     public class ObjectRegistry : MonoBehaviour
     {
-        [Header("Grid Root")]
-        [SerializeField] private Transform gridRoot;
-        [SerializeField] private Vector3 defaultBoundingBoxSize = new Vector3(0.05f, 0.05f, 0.05f);
+        [Header("Spatial Object Root")]
+        [SerializeField] private Transform spatialObjectRoot;
 
-        public void RegisterFromGridConfig(List<global::Grid> _)
+        public void RegisterFromGridConfig(List<SpatialObject> _)
         {
             
         }
@@ -19,17 +18,48 @@ namespace SA_XARM.SpatialRef.Spatial
         public List<ObjectData> GetAll()
         {
             var result = new List<ObjectData>();
-            Transform root = ResolveGridRoot();
-            if (root == null) return result;
-
-            global::Grid[] grids = root.GetComponentsInChildren<global::Grid>(true);
-            for (int i = 0; i < grids.Length; i++)
+            Transform root = ResolveSpatialObjectRoot();
+            if (root == null)
             {
-                global::Grid grid = grids[i];
-                if (grid == null) continue;
+                Debug.LogWarning("[ObjectRegistry] spatialObjectRoot is not resolved.");
+                return result;
+            }
 
-                ObjectData data = BuildObjectData(grid);
+            SpatialObject[] spatialObjects = root.GetComponentsInChildren<SpatialObject>(true);
+            for (int i = 0; i < spatialObjects.Length; i++)
+            {
+                SpatialObject spatialObject = spatialObjects[i];
+                if (spatialObject == null) continue;
+
+                ObjectData data = BuildObjectData(spatialObject);
                 result.Add(data);
+            }
+
+            if (result.Count == 0)
+            {
+                int fallbackIndex = 0;
+                for (int i = 0; i < root.childCount; i++)
+                {
+                    Transform child = root.GetChild(i);
+                    if (child == null) continue;
+
+                    if (!child.gameObject.activeInHierarchy && !child.gameObject.activeSelf) continue;
+
+                    fallbackIndex++;
+                    result.Add(new ObjectData
+                    {
+                        id = string.IsNullOrWhiteSpace(child.name) ? $"fallback_object_{fallbackIndex}" : child.name,
+                        label = "unknown",
+                        color = "unknown",
+                        position = Vec3.FromVector3(child.position)
+                    });
+                }
+
+                Debug.LogWarning($"[ObjectRegistry] SpatialObject component not found under '{root.name}'. Fallback objects collected: {result.Count}");
+            }
+            else
+            {
+                Debug.Log($"[ObjectRegistry] Collected SpatialObjects: {result.Count} (root={root.name})");
             }
 
             return result;
@@ -38,83 +68,64 @@ namespace SA_XARM.SpatialRef.Spatial
         public GameObject FindHologram(string objectId)
         {
             if (string.IsNullOrWhiteSpace(objectId)) return null;
-            Transform root = ResolveGridRoot();
+            Transform root = ResolveSpatialObjectRoot();
             if (root == null) return null;
 
-            global::Grid[] grids = root.GetComponentsInChildren<global::Grid>(true);
-            for (int i = 0; i < grids.Length; i++)
+            SpatialObject[] spatialObjects = root.GetComponentsInChildren<SpatialObject>(true);
+            for (int i = 0; i < spatialObjects.Length; i++)
             {
-                global::Grid grid = grids[i];
-                if (grid == null) continue;
+                SpatialObject spatialObject = spatialObjects[i];
+                if (spatialObject == null) continue;
 
-                string gridObjectId = BuildObjectId(grid);
-                if (string.Equals(gridObjectId, objectId, StringComparison.OrdinalIgnoreCase))
+                string spatialObjectId = BuildObjectId(spatialObject);
+                if (string.Equals(spatialObjectId, objectId, StringComparison.OrdinalIgnoreCase))
                 {
-                    return grid.gameObject;
+                    return spatialObject.gameObject;
                 }
             }
 
             return null;
         }
 
-        private Transform ResolveGridRoot()
+        private Transform ResolveSpatialObjectRoot()
         {
-            if (gridRoot != null) return gridRoot;
+            if (spatialObjectRoot != null) return spatialObjectRoot;
 
-            GameObject gridObject = GameObject.Find("Grid") ?? GameObject.Find("Grids");
-            if (gridObject != null)
+            GameObject spatialObjects = GameObject.Find("SpatialObjects") ?? GameObject.Find("SpatialObject");
+            if (spatialObjects != null)
             {
-                return gridObject.transform;
+                return spatialObjects.transform;
             }
 
             return null;
         }
 
-        private ObjectData BuildObjectData(global::Grid grid)
+        private ObjectData BuildObjectData(SpatialObject spatialObject)
         {
-            Vector3 worldPosition = grid.transform.position;
-
-            Vector3 boundingSize = ResolveBoundingSize(grid);
+            Vector3 worldPosition = spatialObject.transform.position;
 
             return new ObjectData
             {
-                id = BuildObjectId(grid),
-                label = grid.gameObject.name,
-                color = "unknown",
-                position = Vec3.FromVector3(worldPosition),
-                bounding_box = new BoundingBox
-                {
-                    center = Vec3.FromVector3(worldPosition),
-                    size = Vec3.FromVector3(boundingSize)
-                }
+                id = BuildObjectId(spatialObject),
+                label = spatialObject.GetLabel(),
+                color = spatialObject.GetColorName(),
+                position = Vec3.FromVector3(worldPosition)
             };
         }
 
-        private string BuildObjectId(global::Grid grid)
+        private string BuildObjectId(SpatialObject spatialObject)
         {
-            if (grid == null) return string.Empty;
+            if (spatialObject == null) return string.Empty;
 
-            string nameId = grid.gameObject.name;
+            string nameId = spatialObject.GetObjectId();
             if (!string.IsNullOrWhiteSpace(nameId))
             {
                 return nameId;
             }
 
-            (int x, int y) = grid.GetGridPosition();
-            return $"grid_{x}_{y}";
+            (int x, int y) = spatialObject.GetGridPosition();
+            return $"spatial_object_{x}_{y}";
         }
 
-        private Vector3 ResolveBoundingSize(global::Grid grid)
-        {
-            if (grid == null) return defaultBoundingBoxSize;
-
-            Renderer renderer = grid.GetComponentInChildren<Renderer>();
-            if (renderer == null)
-            {
-                return defaultBoundingBoxSize;
-            }
-
-            return renderer.bounds.size;
-        }
     }
 }

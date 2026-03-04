@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using SA_XARM.SpatialRef.Spatial;
 using UnityEngine;
 using static CommandClient;
 
@@ -17,7 +18,7 @@ public class LLMPickerDebug : MonoBehaviour
 
         foreach(Transform grid in grids.transform)
         {
-            Grid chGrid = grid.GetComponent<Grid>();
+          SpatialObject chGrid = grid.GetComponent<SpatialObject>();
             chGrid.GazeUnhover();
             }   
 
@@ -28,7 +29,7 @@ public class LLMPickerDebug : MonoBehaviour
            
             return;
         }
-          Grid gridComponent = grids.transform.Find(target_id)?.GetComponent<Grid>();
+          SpatialObject gridComponent = grids.transform.Find(target_id)?.GetComponent<SpatialObject>();
             gridComponent.GazeHover();
             Debug.LogWarning($"[LLMPickerDebug] GameObject with id {target_id} not found.");
 

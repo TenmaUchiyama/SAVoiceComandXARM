@@ -123,6 +123,9 @@ class UnityWSEmulator:
 
     async def handle_spatial_reference_request(self, ws: Any, req: Dict[str, Any]) -> None:
         selected = select_candidate(req)
+        print("================= Spatial Reference Request =================")
+        print(json.dumps(req, indent=2, ensure_ascii=False))    
+        print("==================================")
         result = {
             "type": "spatial_reference_result",
             "request_id": req.get("request_id", str(uuid.uuid4())),

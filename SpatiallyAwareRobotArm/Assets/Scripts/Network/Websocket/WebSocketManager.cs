@@ -29,6 +29,7 @@ public class WebSocketManager : MonoBehaviour
     [SerializeField] private string serverAddress = "192.168.108.164";
     [SerializeField] private string serverPort = "8080";
     [SerializeField] private bool autoConnectOnStart = false; // ← 自動接続スイッチ
+    [SerializeField] private float reconnectIntervalSeconds = 2f;
 
     
     [SerializeField] private TextMeshProUGUI socketConnectedStatusText; 
@@ -36,6 +37,9 @@ public class WebSocketManager : MonoBehaviour
     private WebSocket _websocket;
     private Dictionary<string, Action<string>> _handlers = new Dictionary<string, Action<string>>();
     private string serverUrl;
+    private bool _manualDisconnectRequested;
+    private bool _isQuitting;
+    private bool _isReconnecting;
 
     private void SetStatusText(string text)
     {
@@ -93,6 +97,8 @@ public class WebSocketManager : MonoBehaviour
 
     private async void OnApplicationQuit()
     {
+        _isQuitting = true;
+        _manualDisconnectRequested = true;
         await Disconnect();
     }
 
@@ -104,6 +110,12 @@ public class WebSocketManager : MonoBehaviour
     /// サーバーに接続開始
     /// </summary>
     public async void Connect()
+    {
+        _manualDisconnectRequested = false;
+        await ConnectInternal();
+    }
+
+    private async Task ConnectInternal()
     {
         // 既に接続中なら何もしない（連打防止）
         if (_websocket != null && 
@@ -119,12 +131,15 @@ public class WebSocketManager : MonoBehaviour
         
         // インスタンスを生成（再接続時にも新しく作る必要がある）
         _websocket = new WebSocket(serverUrl);
+        var currentSocket = _websocket;
 
         // イベント定義
         _websocket.OnOpen += () => {
-            SpatialDebugLog.Instance.Log("[WS] ` Connected!", true, "green");
+            SpatialDebugLog.Instance.Log("[WS] Connected!", true, "green");
             SetStatusText("Connected");
-            SpatialDebugLog.Instance.Log($"[WS] State: {_websocket.State}", true, "white");
+            _isReconnecting = false;
+            RegisterBuiltInHandlers();
+            SpatialDebugLog.Instance.Log($"[WS] State: {currentSocket.State}", true, "white");
         };
         _websocket.OnError += (e) =>
         {
@@ -135,6 +150,16 @@ public class WebSocketManager : MonoBehaviour
         {
             SpatialDebugLog.Instance.Log("[WS] Closed: " + e, true, "yellow");
             SetStatusText("Disconnected");
+
+            if (ReferenceEquals(_websocket, currentSocket))
+            {
+                _websocket = null;
+            }
+
+            if (!_manualDisconnectRequested && !_isQuitting)
+            {
+                _ = ReconnectLoop();
+            }
         };
         
         // メッセージ受信処理
@@ -164,7 +189,7 @@ public class WebSocketManager : MonoBehaviour
                     SpatialDebugLog.Instance.Log($"[WS] Available handlers: {string.Join(", ", _handlers.Keys)}", true, "yellow");
                 }
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 // SpatialDebugLog.Instance.Log($"[WS]Parse Error: {e.Message}\n{e.StackTrace}", true, "red");
             }
@@ -179,7 +204,42 @@ public class WebSocketManager : MonoBehaviour
         {
             SpatialDebugLog.Instance.Log("[WS]Connect failed: " + e.Message, true, "red");
             SetStatusText("Error");
+
+            if (!_manualDisconnectRequested && !_isQuitting)
+            {
+                _ = ReconnectLoop();
+            }
         }
+    }
+
+    private async Task ReconnectLoop()
+    {
+        if (_isReconnecting || _manualDisconnectRequested || _isQuitting) return;
+
+        _isReconnecting = true;
+        SpatialDebugLog.Instance.Log("[WS] Reconnect loop started.", true, "yellow");
+
+        while (!_manualDisconnectRequested && !_isQuitting && !IsConnected)
+        {
+            SetStatusText("Reconnecting...");
+            SpatialDebugLog.Instance.Log($"[WS] Reconnecting in {reconnectIntervalSeconds:F1}s...", true, "yellow");
+
+            await Task.Delay(TimeSpan.FromSeconds(reconnectIntervalSeconds));
+
+            if (_manualDisconnectRequested || _isQuitting || IsConnected)
+            {
+                break;
+            }
+
+            await ConnectInternal();
+        }
+
+        if (!IsConnected)
+        {
+            SetStatusText("Disconnected");
+        }
+
+        _isReconnecting = false;
     }
 
     /// <summary>
@@ -187,6 +247,9 @@ public class WebSocketManager : MonoBehaviour
     /// </summary>
     public async System.Threading.Tasks.Task Disconnect()
     {
+        _manualDisconnectRequested = true;
+        _isReconnecting = false;
+
         if (_websocket != null)
         {
             await _websocket.Close();
@@ -241,6 +304,15 @@ public class WebSocketManager : MonoBehaviour
         string key = (eventId ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(key)) return;
         if (_handlers.ContainsKey(key)) _handlers.Remove(key);
+    }
+
+    /// <summary>
+    /// Register built-in transport-level handlers (e.g. KeepAlive).
+    /// Called automatically after connection is established.
+    /// </summary>
+    private void RegisterBuiltInHandlers()
+    {
+        On("KeepAlive", (string _) => { /* server keep-alive ping — no action needed */ });
     }
 
         internal async Task<string> SendPickGridRequest(int x_grid, int y_grid)

@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using MixedReality.Toolkit.Input;
 using SA_XARM.Network.Request;
 using SA_XARM.Network.Websocket;
+using SA_XARM.SpatialRef.Spatial;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit; // これを追加
 
@@ -100,9 +101,9 @@ public class SAInteractionManager : MonoBehaviour
                 // // ここがやりたかったこと！
                 // SpatialDebugLog.Instance.Log($"<color=orange>[Action] ピンチした瞬間に見ていたオブジェクト: {lastHitObject.name}</color>", doLog);
                 Debug.Log("[Action] Pinched Object: " + lastHitObject.name);
-                if(lastHitObject.TryGetComponent(out Grid grid))
+                if(lastHitObject.TryGetComponent(out SpatialObject spatialObject))
                 {
-                    (int x_grid, int y_grid) = grid.GetGridPosition();
+                    (int x_grid, int y_grid) = spatialObject.GetGridPosition();
                     
                     SpatialDebugLog.Instance.Log($"<color=orange>[Action] ピンチしたグリッド座標: ({x_grid}, {y_grid})</color>", doLog);
                     Debug.Log($"[Action] Pinched Grid Position: ({x_grid}, {y_grid})");
@@ -110,8 +111,8 @@ public class SAInteractionManager : MonoBehaviour
                 string response = ""; 
                 if(WebSocketManager.Instance != null) response = await WebSocketManager.Instance.SendPickGridRequest(x_grid, y_grid);
                 }else{
-                    SpatialDebugLog.Instance.Log("<color=red>[Action] ピンチしたオブジェクトはGridコンポーネントを持っていません。</color>", doLog);
-                    Debug.LogWarning("[Action] Pinched object does not have Grid component.");
+                    SpatialDebugLog.Instance.Log("<color=red>[Action] ピンチしたオブジェクトはSpatialObjectコンポーネントを持っていません。</color>", doLog);
+                    Debug.LogWarning("[Action] Pinched object does not have SpatialObject component.");
                 }
             }
             else
