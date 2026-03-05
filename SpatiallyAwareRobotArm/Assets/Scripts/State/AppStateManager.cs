@@ -37,6 +37,7 @@ namespace SA_XARM.SpatialRef.State
 
         private string _lastRequestId;
         private string _lastTargetObjectId;
+        private SpatialObject _highlightedSpatialObject;
 
         private void OnEnable()
         {
@@ -131,41 +132,27 @@ namespace SA_XARM.SpatialRef.State
                 ? result.selected_object_id
                 : result.top_candidate_id;
             SetState(AppState.ShowingResult, $"候補: {_lastTargetObjectId}");
+            HighlightTargetForConfirmation(_lastTargetObjectId);
             OnResultUpdated?.Invoke(result);
             Log($"Result received: selected={_lastTargetObjectId}", "green");
         }
 
-        public void OnUserConfirmed(string objectId)
+        public void OnUserFeedback(string feedbackUtterance, string objectId = null)
         {
+            if (string.IsNullOrWhiteSpace(feedbackUtterance))
+            {
+                SetError("フィードバック発話が空です");
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(objectId))
             {
                 objectId = _lastTargetObjectId;
             }
 
-            if (string.IsNullOrWhiteSpace(objectId))
+            if (webSocketManager == null || !webSocketManager.IsConnected)
             {
-                SetError("確認対象の object_id がありません");
-                return;
-            }
-
-            var msg = new ConfirmationMessage
-            {
-                request_id = Guid.NewGuid().ToString(),
-                original_request_id = _lastRequestId,
-                confirmed_object_id = objectId,
-                action = "pick"
-            };
-
-            SetState(AppState.Executing, "ロボット実行中...");
-            webSocketManager.Send("confirmation", msg);
-            Log($"Confirmation sent: object={objectId}", "white");
-        }
-
-        public void OnUserRefined(string refinementText)
-        {
-            if (string.IsNullOrWhiteSpace(refinementText))
-            {
-                SetError("修正発話が空です");
+                SetError("サーバー未接続です");
                 return;
             }
 
@@ -175,23 +162,23 @@ namespace SA_XARM.SpatialRef.State
                 return;
             }
 
-            var msg = new RefinementRequest
+            var msg = new ConfirmationInterpretationRequest
             {
                 request_id = Guid.NewGuid().ToString(),
                 original_request_id = _lastRequestId,
                 utterance = new Utterance
                 {
-                    text = refinementText,
+                    text = feedbackUtterance,
                     language = language
                 },
-                user_pose = spatialContextProvider.GetUserPose(),
-                previous_target = _lastTargetObjectId
+                confirmed_object_id = objectId,
+                action = "pick",
+                user_pose = spatialContextProvider.GetUserPose()
             };
 
-            SetState(AppState.Refining, "修正指示を送信中...");
-            webSocketManager.Send("refinement_request", msg);
-            SetState(AppState.Processing, "再推論中...");
-            Log("Refinement request sent", "white");
+            SetState(AppState.Processing, "フィードバック解釈中...");
+            webSocketManager.Send("confirmation_interpretation_request", msg);
+            Log($"Feedback sent: utterance={feedbackUtterance}, object={objectId}", "white");
         }
 
         public void OnRobotCommandReceived(RobotCommand cmd)
@@ -263,9 +250,45 @@ namespace SA_XARM.SpatialRef.State
 
         private void SetState(AppState next, string statusMessage)
         {
+            if (next != AppState.ShowingResult)
+            {
+                ClearHighlightedTarget();
+            }
+
             CurrentState = next;
             OnStateChanged?.Invoke(CurrentState);
             OnStatusChanged?.Invoke(statusMessage);
+        }
+
+        private void HighlightTargetForConfirmation(string objectId)
+        {
+            ClearHighlightedTarget();
+
+            if (string.IsNullOrWhiteSpace(objectId) || spatialContextProvider == null)
+            {
+                return;
+            }
+
+            SpatialObject targetObject = spatialContextProvider.FindSpatialObject(objectId);
+            if (targetObject == null)
+            {
+                Log($"Highlight target not found: {objectId}", "yellow");
+                return;
+            }
+
+            targetObject.Highlight();
+            _highlightedSpatialObject = targetObject;
+        }
+
+        private void ClearHighlightedTarget()
+        {
+            if (_highlightedSpatialObject == null)
+            {
+                return;
+            }
+
+            _highlightedSpatialObject.Unhighlight();
+            _highlightedSpatialObject = null;
         }
 
         private void Log(string message, string color)

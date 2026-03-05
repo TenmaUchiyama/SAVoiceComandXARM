@@ -61,6 +61,16 @@ namespace SA_XARM.SpatialRef.Spatial
             return objectRegistry.GetAll();
         }
 
+        public SpatialObject FindSpatialObject(string objectId)
+        {
+            if (objectRegistry == null) return null;
+
+            GameObject hologram = objectRegistry.FindHologram(objectId);
+            if (hologram == null) return null;
+
+            return hologram.GetComponent<SpatialObject>();
+        }
+
         public SpatialReferenceRequest BuildRequest(string utteranceText, string language = "ja")
         {
             return new SpatialReferenceRequest

@@ -132,6 +132,31 @@ class ConfirmationRequest(BaseModel):
     original_request_id: Optional[str] = None
     confirmed_object_id: str
     action: str = "pick"
+    accepted: bool = True
+    rejection_reason: Optional[str] = None
+
+
+class ConfirmationInterpretationRequest(BaseModel):
+    type: Literal["confirmation_interpretation_request"]
+    request_id: str
+    original_request_id: Optional[str] = None
+    utterance: UtteranceModel
+    confirmed_object_id: Optional[str] = None
+    action: str = "pick"
+    user_pose: Optional[UserPoseModel] = None
+
+    @root_validator(pre=True)
+    def normalize_legacy_utterance(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if values.get("utterance") is not None:
+            return values
+
+        legacy_text = values.get("utterance_text") or values.get("text")
+        if legacy_text is not None:
+            values["utterance"] = {
+                "text": legacy_text,
+                "language": values.get("language", "ja"),
+            }
+        return values
 
 
 Vec3 = Tuple[float, float, float]
@@ -211,6 +236,7 @@ def compute_spatial_features(
     user_pose: UserPoseModel,
     robot_pose: Optional[RobotPoseModel],
 ) -> List[Dict]:
+    # 参照座標系を決定し、原点と前方向(Forward)を設定する
     if reference_frame == "robot_centric":
         if robot_pose is None:
             raise ValueError("robot_centric requires robot_pose")
@@ -222,12 +248,14 @@ def compute_spatial_features(
         forward = to_v3(user_pose.forward)
         up = to_v3(user_pose.up)
 
+    # Forward/Right/Up の直交基底を作る(以降の相対座標変換で使用)
     f_hat = normalize(forward)
     r_hat = normalize(cross(up, f_hat))
     u_hat = normalize(cross(f_hat, r_hat))
 
     rows: List[Dict] = []
     for item in objects:
+        # 各オブジェクトのワールド座標を参照座標系へ射影し、距離・方位角を計算する
         world_pos = to_v3(item.position)
         rel = sub(world_pos, origin)
         relative_x = dot(rel, r_hat)
@@ -253,6 +281,7 @@ def compute_spatial_features(
             }
         )
 
+    # 深さ(z)と左右(x)で順位を付け、最短距離オブジェクトをフラグ化する
     depth_ranks = rank_map([(row["object_id"], row["relative_z"]) for row in rows], reverse=False)
     lateral_ranks = rank_map([(row["object_id"], row["relative_x"]) for row in rows], reverse=False)
     min_distance = min((row["distance"] for row in rows), default=0.0)

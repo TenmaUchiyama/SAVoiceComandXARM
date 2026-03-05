@@ -79,18 +79,15 @@ namespace SA_XARM.Network.Request
 
     public async Task<string> SendPickGridRequest(int x_grid, int y_grid)
     {
-        var requestPayload = new GridPickRequest(x_grid, y_grid);
-        string jsonBody = JsonConvert.SerializeObject(requestPayload, Formatting.None);
         if (SpatialDebugLog.Instance != null)
         {
-            SpatialDebugLog.Instance.Log($"[XarmAppServerQueryRequester] Sending GridPickRequest: {jsonBody}", debugText != "");
+            SpatialDebugLog.Instance.Log(
+                "<color=yellow>[XarmAppServerQueryRequester] xarm_pick endpoint is deprecated. Use /spatial confirmation flow.</color>",
+                debugText != ""
+            );
         }
-        string response = await PostRequest("xarm_pick", jsonBody);
-        if (SpatialDebugLog.Instance != null)
-        {
-            SpatialDebugLog.Instance.Log($"[XarmAppServerQueryRequester] Received Response: {response}", debugText != "");
-        }
-        return response;
+        await Task.CompletedTask;
+        return "deprecated";
     }
 
         public async Task SendCalibrationRequest()

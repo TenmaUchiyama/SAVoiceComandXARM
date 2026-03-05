@@ -182,13 +182,40 @@ async def step_refinement(base_ws: str, original_request_id: str, utterance: str
     return request_id
 
 
-async def step_confirmation(base_ws: str, request_id: str, object_id: str):
-    """Step 3: confirmation を送信 → robot_command を受信。"""
-    _header("Step 3: 確認 (confirmation)")
+async def step_rejection(base_ws: str, request_id: str, object_id: str, reason: str = "") -> str:
+    """Step 3a: confirmation(accepted=false) を送信 → 再選定結果を受信。"""
+    _header("Step 3a: 拒否 → 再選定 (HITL rejection)")
     payload = {
         "type": "confirmation",
         "request_id": request_id,
         "confirmed_object_id": object_id,
+        "accepted": False,
+        "rejection_reason": reason,
+    }
+    uri = f"{base_ws}/spatial"
+    resp = await ws_send_recv(uri, payload)
+
+    if resp.get("type") == "spatial_reference_result":
+        target = resp.get("target", {})
+        _ok(f"再選定ターゲット: {target.get('object_id')}  (confidence={target.get('confidence')})")
+        candidates = resp.get("ranked_candidates", [])
+        print(f"  候補数: {len(candidates)}")
+        for c in candidates:
+            print(f"    {c.get('object_id')}: score={c.get('score')}")
+    else:
+        _err(f"type={resp.get('type')} — {resp.get('message', '')}")
+
+    return resp.get("request_id", request_id)
+
+
+async def step_confirmation(base_ws: str, request_id: str, object_id: str):
+    """Step 3b: confirmation(accepted=true) を送信 → robot_command を受信。"""
+    _header("Step 3b: 承認 → ロボットピック (confirmation)")
+    payload = {
+        "type": "confirmation",
+        "request_id": request_id,
+        "confirmed_object_id": object_id,
+        "accepted": True,
         "action": "pick",
     }
     uri = f"{base_ws}/spatial"
@@ -198,6 +225,33 @@ async def step_confirmation(base_ws: str, request_id: str, object_id: str):
         _ok(f"action={resp.get('action')}, target={resp.get('target_object_id')}, status={resp.get('status')}")
     else:
         _err(f"type={resp.get('type')} — {resp.get('message', '')}")
+
+
+async def step_confirmation_interpretation(base_ws: str, request_id: str, utterance: str, object_id: str = "") -> tuple[str, bool]:
+    """Step 3c: confirmation_interpretation_request を送信し、自動分岐結果を受信。"""
+    _header("Step 3c: 確認発話の自動解釈 (confirmation_interpretation_request)")
+    payload = {
+        "type": "confirmation_interpretation_request",
+        "request_id": _new_id(),
+        "original_request_id": request_id,
+        "utterance": {"text": utterance, "language": "ja"},
+        "confirmed_object_id": object_id,
+        "action": "pick",
+    }
+    uri = f"{base_ws}/spatial"
+    resp = await ws_send_recv(uri, payload)
+
+    resp_type = resp.get("type")
+    if resp_type == "spatial_reference_result":
+        target = resp.get("target", {})
+        _ok(f"再選定ターゲット: {target.get('object_id')}  (confidence={target.get('confidence')})")
+        return resp.get("request_id", request_id), False
+    if resp_type == "robot_command":
+        _ok(f"action={resp.get('action')}, target={resp.get('target_object_id')}, status={resp.get('status')}")
+        return request_id, True
+
+    _err(f"type={resp_type} — {resp.get('message', '')}")
+    return request_id, False
 
 
 # ──────────────────────────────────────────
@@ -327,11 +381,30 @@ async def main(base_ws: str, base_http: str):
         latest_request_id = await step_refinement(base_ws, request_id, utterance2)
     _pause()
 
-    # ── Step 3: confirmation ──
-    obj_id = input(f"{BOLD}Step3 確定する object_id (空欄でデフォルト: 'obj_001'){RESET}\n > ").strip()
-    if not obj_id:
-        obj_id = "obj_001"
-    await step_confirmation(base_ws, latest_request_id, obj_id)
+    # ── Step 3: Human-In-the-Loop 確認ループ ──
+    while True:
+        obj_id = input(f"{BOLD}Step3 確定する object_id (空欄でデフォルト: 'obj_001'){RESET}\n > ").strip()
+        if not obj_id:
+            obj_id = "obj_001"
+        mode = input(f"{BOLD}  モード選択: 1) 直接 confirmation  2) LLM確認解釈 (空欄=2){RESET}\n > ").strip().lower()
+        if mode in ("", "2", "llm"):
+            confirm_utt = input(f"{BOLD}  確認発話を入力 (例: 'はい', '違う', 'もっと右のやつ'){RESET}\n > ").strip()
+            if not confirm_utt:
+                confirm_utt = "はい"
+            latest_request_id, done = await step_confirmation_interpretation(base_ws, latest_request_id, confirm_utt, obj_id)
+            if done:
+                break
+            print("\n  → 新しい候補が提示されました。再度確認してください。\n")
+            continue
+
+        accept = input(f"{BOLD}  承認しますか？ (y/n, 空欄=y){RESET}\n > ").strip().lower()
+        if accept in ("", "y", "yes"):
+            await step_confirmation(base_ws, latest_request_id, obj_id)
+            break
+
+        reason = input(f"{BOLD}  拒否理由 (空欄=なし){RESET}\n > ").strip()
+        latest_request_id = await step_rejection(base_ws, latest_request_id, obj_id, reason)
+        print("\n  → 新しい候補が提示されました。再度確認してください。\n")
     _pause()
 
     # ── Step 4: REST /command_cord ──

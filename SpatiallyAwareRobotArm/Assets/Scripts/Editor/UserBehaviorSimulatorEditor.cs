@@ -21,14 +21,9 @@ public class UserBehaviorSimulatorEditor : Editor
                 simulator.SendUtterance();
             }
 
-            if (GUILayout.Button("Send Confirmation"))
+            if (GUILayout.Button("Send Feedback"))
             {
-                simulator.SendConfirmation();
-            }
-
-            if (GUILayout.Button("Send Refinement"))
-            {
-                simulator.SendRefinement();
+                simulator.SendFeedback();
             }
 
             if (GUILayout.Button("Run: Utterance -> Auto Confirmation"))

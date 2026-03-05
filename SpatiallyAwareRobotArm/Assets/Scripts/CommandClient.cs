@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using SA_XARM.Network.Request;
 using UnityEngine.Events;
 
@@ -100,6 +101,7 @@ public string debugUtterance = "目の前の箱を一個とって";
             
             string response = await XarmAppServerQueryRequester.Instance.SendQuery(serverPath, json);
             Debug.Log("[CommandClient] Received response: " + response);
+            LogStageLlmIO(response);
             if (OnReceiveCommandResponse != null)
             {
                 CommandResponseDto responseDto = JsonConvert.DeserializeObject<CommandResponseDto>(response);
@@ -248,5 +250,206 @@ private RobotPoseDto BuildRobotPoseDto()
         // 例: obj_00.. などにしたいならここを自分のルールに合わせて変えてOK
         int sibling = t.GetSiblingIndex();
         return $"obj_{sibling:D2}";
+    }
+
+    private void LogStageLlmIO(string responseJson)
+    {
+        if (string.IsNullOrWhiteSpace(responseJson))
+        {
+            return;
+        }
+
+        JObject root;
+        try
+        {
+            root = JObject.Parse(responseJson);
+        }
+        catch
+        {
+            return;
+        }
+
+        for (int stage = 1; stage <= 3; stage++)
+        {
+            string inputText;
+            string outputText;
+            bool found = TryExtractStageInputOutput(root, stage, out inputText, out outputText);
+            if (!found)
+            {
+                continue;
+            }
+
+            Debug.Log(
+                $"======= Stage {stage} 入力 =======\n" +
+                $"{inputText}\n" +
+                "=====================\n" +
+                $"=======Stage {stage} 出力=========\n" +
+                $"{outputText}\n" +
+                "====================="
+            );
+        }
+    }
+
+    private bool TryExtractStageInputOutput(JObject root, int stage, out string inputText, out string outputText)
+    {
+        inputText = string.Empty;
+        outputText = string.Empty;
+
+        JToken stageNode = FindStageNode(root, stage);
+        if (stageNode != null)
+        {
+            JToken inToken = FindByCandidateKeys(stageNode, "input", "prompt", "llm_input", "request", "messages", "query");
+            JToken outToken = FindByCandidateKeys(stageNode, "output", "response", "llm_output", "result", "answer", "text");
+
+            inputText = TokenToReadableText(inToken);
+            outputText = TokenToReadableText(outToken);
+        }
+
+        JToken flatInput = FindByCandidateKeys(
+            root,
+            $"stage{stage}_input",
+            $"stage_{stage}_input",
+            $"Stage{stage}Input",
+            $"Stage{stage}_Input"
+        );
+        JToken flatOutput = FindByCandidateKeys(
+            root,
+            $"stage{stage}_output",
+            $"stage_{stage}_output",
+            $"Stage{stage}Output",
+            $"Stage{stage}_Output"
+        );
+
+        if (string.IsNullOrEmpty(inputText))
+        {
+            inputText = TokenToReadableText(flatInput);
+        }
+        if (string.IsNullOrEmpty(outputText))
+        {
+            outputText = TokenToReadableText(flatOutput);
+        }
+
+        bool hasInput = !string.IsNullOrEmpty(inputText);
+        bool hasOutput = !string.IsNullOrEmpty(outputText);
+        if (!hasInput && !hasOutput)
+        {
+            return false;
+        }
+
+        if (!hasInput)
+        {
+            inputText = "(なし)";
+        }
+        if (!hasOutput)
+        {
+            outputText = "(なし)";
+        }
+
+        return true;
+    }
+
+    private JToken FindStageNode(JObject root, int stage)
+    {
+        string[] stageKeys = new string[]
+        {
+            $"stage{stage}",
+            $"stage_{stage}",
+            $"Stage{stage}",
+            $"Stage {stage}",
+            $"stage {stage}"
+        };
+
+        JToken[] containers = new JToken[]
+        {
+            root,
+            root["llm_input"],
+            root["debug"],
+            root["llm"],
+            root["stages"]
+        };
+
+        foreach (JToken container in containers)
+        {
+            if (container == null)
+            {
+                continue;
+            }
+
+            foreach (string key in stageKeys)
+            {
+                JToken hit = container[key];
+                if (hit != null)
+                {
+                    return hit;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private JToken FindByCandidateKeys(JToken token, params string[] keys)
+    {
+        if (token == null || keys == null || keys.Length == 0)
+        {
+            return null;
+        }
+
+        if (token is JObject obj)
+        {
+            foreach (string key in keys)
+            {
+                JToken direct = obj[key];
+                if (direct != null)
+                {
+                    return direct;
+                }
+
+                foreach (var prop in obj.Properties())
+                {
+                    if (string.Equals(prop.Name, key, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return prop.Value;
+                    }
+                }
+            }
+
+            foreach (var prop in obj.Properties())
+            {
+                JToken nested = FindByCandidateKeys(prop.Value, keys);
+                if (nested != null)
+                {
+                    return nested;
+                }
+            }
+        }
+        else if (token is JArray arr)
+        {
+            foreach (JToken item in arr)
+            {
+                JToken nested = FindByCandidateKeys(item, keys);
+                if (nested != null)
+                {
+                    return nested;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private string TokenToReadableText(JToken token)
+    {
+        if (token == null || token.Type == JTokenType.Null)
+        {
+            return string.Empty;
+        }
+
+        if (token.Type == JTokenType.String)
+        {
+            return token.ToString();
+        }
+
+        return token.ToString(Formatting.Indented);
     }
 }

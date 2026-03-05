@@ -8,8 +8,6 @@ namespace SA_XARM.SpatialRef.Spatial
 		[SerializeField] private string objectId;
 		[SerializeField] private string objectLabel;
 		[SerializeField] private string objectColor = "unknown";
-		[SerializeField] private string objectShape = "unknown";
-		[SerializeField] private string objectSize = "unknown";
 
 
 		[SerializeField] private int x_grid = 0;
@@ -17,6 +15,7 @@ namespace SA_XARM.SpatialRef.Spatial
 
 		[SerializeField] private GameObject gridVisual;
 		[SerializeField] private GameObject labelVisual;
+		[SerializeField] private GameObject arrowVisual;
 		[SerializeField] private Color defaultColor = Color.white;
 		[SerializeField] private Color highlightColor = Color.green;
 
@@ -54,6 +53,11 @@ namespace SA_XARM.SpatialRef.Spatial
 				labelVisual.SetActive(false);
 			}
 
+			if (arrowVisual != null)
+			{
+				arrowVisual.SetActive(false);
+			}
+
 			SetRendererColor(defaultColor);
 		}
 
@@ -84,12 +88,20 @@ namespace SA_XARM.SpatialRef.Spatial
 		{
 			IsHighlighted = true;
 			SetRendererColor(highlightColor);
+			if (arrowVisual != null)
+			{
+				arrowVisual.SetActive(true);
+			}
 		}
 
 		public void Unhighlight()
 		{
 			IsHighlighted = false;
 			SetRendererColor(defaultColor);
+			if (arrowVisual != null)
+			{
+				arrowVisual.SetActive(false);
+			}
 		}
 
 		public void GazeHover()
@@ -151,16 +163,6 @@ namespace SA_XARM.SpatialRef.Spatial
 		public string GetColorName()
 		{
 			return string.IsNullOrWhiteSpace(objectColor) ? "unknown" : objectColor;
-		}
-
-		public string GetShape()
-		{
-			return string.IsNullOrWhiteSpace(objectShape) ? "unknown" : objectShape;
-		}
-
-		public string GetSizeName()
-		{
-			return string.IsNullOrWhiteSpace(objectSize) ? "unknown" : objectSize;
 		}
 
 		public string GetDirectionFrom(Vector3 viewerPosition, Vector3 viewerForward)

@@ -98,7 +98,7 @@ public class SAInteractionManager : MonoBehaviour
             Debug.Log("[Action] Pinched");
             if (lastHitObject != null)
             {
-                // // ここがやりたかったこと！
+     
                 // SpatialDebugLog.Instance.Log($"<color=orange>[Action] ピンチした瞬間に見ていたオブジェクト: {lastHitObject.name}</color>", doLog);
                 Debug.Log("[Action] Pinched Object: " + lastHitObject.name);
                 if(lastHitObject.TryGetComponent(out SpatialObject spatialObject))
@@ -108,8 +108,14 @@ public class SAInteractionManager : MonoBehaviour
                     SpatialDebugLog.Instance.Log($"<color=orange>[Action] ピンチしたグリッド座標: ({x_grid}, {y_grid})</color>", doLog);
                     Debug.Log($"[Action] Pinched Grid Position: ({x_grid}, {y_grid})");
                             // XarmAppServerQueryRequester を使ってリクエストを送信
-                string response = ""; 
-                if(WebSocketManager.Instance != null) response = await WebSocketManager.Instance.SendPickGridRequest(x_grid, y_grid);
+                SpatialDebugLog.Instance.Log(
+                    "<color=yellow>[Action] Direct grid pick over WS is deprecated. Use AppStateManager spatial confirmation flow.</color>",
+                    doLog
+                );
+                if (WebSocketManager.Instance != null)
+                {
+                    _ = await WebSocketManager.Instance.SendPickGridRequest(x_grid, y_grid);
+                }
                 }else{
                     SpatialDebugLog.Instance.Log("<color=red>[Action] ピンチしたオブジェクトはSpatialObjectコンポーネントを持っていません。</color>", doLog);
                     Debug.LogWarning("[Action] Pinched object does not have SpatialObject component.");

@@ -18,16 +18,16 @@ from LLM_Agent.agent import (
     classify_reference_frame_v2,
     decide_selection_rule,
     execute_decision,
+    interpret_confirmation_v2,
     rank_objects_v2,
 )
-from manager import send_json_grid
-from manager import manager, keyboard_monitor_loop
 from utils import save_grid_to_file, save_robot_marker_config
 from spatial_pipeline import (
     SessionContext,
     SpatialReferenceRequest,
     RefinementRequest,
     ConfirmationRequest,
+    ConfirmationInterpretationRequest,
     compute_spatial_features,
     apply_fallback_ranking,
 )
@@ -66,7 +66,6 @@ async def lifespan(app: FastAPI):
             print("【Server】環境変数 XARM_ENABLE=0 のためロボット機能は無効です")
         else:
             print(f"【Server】xArm SDK が見つからないためロボット機能は無効です: {_XARM_IMPORT_ERROR}")
-    asyncio.create_task(keyboard_monitor_loop())
     yield
     # 終了時
     if robot is not None:
@@ -77,7 +76,7 @@ app = FastAPI(title="Integrated Spatial Robot Controller", lifespan=lifespan)
 SESSION_STORE: Dict[str, SessionContext] = {}
 LAST_SPATIAL_DISCONNECT: Optional[dict] = None
 
-LLM_TIMEOUT_SEC = float(os.getenv("LLM_TIMEOUT_SEC", "10.0"))
+LLM_TIMEOUT_SEC = float(os.getenv("LLM_TIMEOUT_SEC", "90.0"))
 LLM_MAX_RETRIES = max(1, int(os.getenv("LLM_MAX_RETRIES", "3")))
 SESSION_TIMEOUT_SEC = float(os.getenv("SESSION_TIMEOUT_SEC", "300.0"))
 
@@ -236,6 +235,23 @@ async def _run_stage2(utterance: str, reference_frame: str, features: List[Dict]
     return await _run_with_retry(rank_objects_v2, utterance, reference_frame, features, refinement_context)
 
 
+async def _run_stage3_confirmation(
+    utterance: str,
+    reference_frame: str,
+    top_candidate_id: str,
+    ranked_candidates: List[Dict],
+    current_target_id: Optional[str] = None,
+):
+    return await _run_with_retry(
+        interpret_confirmation_v2,
+        utterance,
+        reference_frame,
+        top_candidate_id,
+        ranked_candidates,
+        current_target_id,
+    )
+
+
 def _build_result_message(request_id: str, reference_frame: str, ranked_candidates: List[Dict], reasoning: str) -> dict:
     top = ranked_candidates[0] if ranked_candidates else {"object_id": None, "score": 0.0}
     candidate_rows = [
@@ -257,6 +273,28 @@ def _build_result_message(request_id: str, reference_frame: str, ranked_candidat
         "ranked_candidates": candidate_rows,
         "reasoning": reasoning,
     }
+
+
+def _materialize_stage2_candidates(stage2: Any, features: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    selected_object_id = getattr(stage2, "selected_object_id", None)
+    reason = getattr(stage2, "reason", "") or "selected by stage2"
+
+    valid_object_ids = {
+        row.get("object_id") for row in features if isinstance(row, dict) and row.get("object_id")
+    }
+
+    if selected_object_id and selected_object_id in valid_object_ids:
+        return [{"object_id": selected_object_id, "score": 1.0, "reason": reason}]
+
+    fallback_object_id = next(iter(valid_object_ids), None)
+    if fallback_object_id is None:
+        return []
+
+    return [{
+        "object_id": fallback_object_id,
+        "score": 0.5,
+        "reason": "fallback: stage2 selected_object_id missing or invalid",
+    }]
 
 
 def _build_robot_command_message(
@@ -291,6 +329,9 @@ async def _route_spatial_message(message: dict) -> Any:
         if msg_type == "confirmation":
             req = ConfirmationRequest(**message)
             return await _process_confirmation_request(req)
+        if msg_type == "confirmation_interpretation_request":
+            req = ConfirmationInterpretationRequest(**message)
+            return await _process_confirmation_interpretation_request(req)
         print(f"【Server】unsupported message type: {msg_type}")
         return {
             "type": "error",
@@ -334,7 +375,8 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
     _validate_coordinates(request_data)
     frame_decision = await _run_stage1(request_data.utterance.text)
     reference_frame = frame_decision.reference_frame
-
+    
+    print(f"【STAGE1】参照フレーム: {reference_frame} (request_id={request_data.request_id})")
     features = compute_spatial_features(
         objects=request_data.objects,
         reference_frame=reference_frame,
@@ -343,11 +385,11 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
     )
 
     try:
+        print(f"【STAGE2】Running Stage 2 ランキング (request_id={request_data.request_id})")
+
         stage2 = await _run_stage2(request_data.utterance.text, reference_frame, features)
-        ranked_candidates = [
-            {"object_id": row.object_id, "score": row.score, "reason": row.reason}
-            for row in stage2.ranked_objects
-        ]
+        ranked_candidates = _materialize_stage2_candidates(stage2, features)
+        print(f"【STAGE2】Ranked Candidates: {ranked_candidates} (request_id={request_data.request_id})")
     except asyncio.TimeoutError:
         raise
     except Exception:
@@ -395,10 +437,7 @@ async def _process_refinement_request(request_data: RefinementRequest) -> dict:
     refinement_context = f"前回ターゲット: {request_data.previous_target or previous.ranked_candidates[0].get('object_id') if previous.ranked_candidates else 'unknown'}"
     try:
         stage2 = await _run_stage2(request_data.utterance.text, reference_frame, features, refinement_context)
-        ranked_candidates = [
-            {"object_id": row.object_id, "score": row.score, "reason": row.reason}
-            for row in stage2.ranked_objects
-        ]
+        ranked_candidates = _materialize_stage2_candidates(stage2, features)
     except asyncio.TimeoutError:
         raise
     except Exception:
@@ -424,6 +463,9 @@ async def _process_refinement_request(request_data: RefinementRequest) -> dict:
 
 
 async def _process_confirmation_request(request_data: ConfirmationRequest) -> List[dict]:
+    print(
+        f"【CONFIRM】accepted={request_data.accepted}, confirmed_object_id={request_data.confirmed_object_id}, action={request_data.action}, request_id={request_data.request_id}"
+    )
     session_request_id = request_data.original_request_id or request_data.request_id
     session = _get_session(session_request_id)
     if session is None:
@@ -434,6 +476,50 @@ async def _process_confirmation_request(request_data: ConfirmationRequest) -> Li
             "message": "session expired or unknown request_id/original_request_id",
         }]
 
+    # ── Human-In-the-Loop: ユーザーが拒否した場合 → Stage2 再選定 ──
+    if not request_data.accepted:
+        rejected_id = request_data.confirmed_object_id
+        reason = request_data.rejection_reason or ""
+        refinement_context = f"ユーザーが {rejected_id} を拒否しました。理由: {reason}" if reason else f"ユーザーが {rejected_id} を拒否しました。別の候補を提示してください。"
+        print(f"【HITL】拒否 → Stage2 再選定 (rejected={rejected_id}, reason={reason}, request_id={request_data.request_id})")
+
+        features = compute_spatial_features(
+            objects=session.objects,
+            reference_frame=session.reference_frame,
+            user_pose=session.user_pose,
+            robot_pose=session.robot_pose,
+        )
+
+        try:
+            stage2 = await _run_stage2(
+                session.utterance, session.reference_frame, features, refinement_context,
+            )
+            ranked_candidates = _materialize_stage2_candidates(stage2, features)
+        except asyncio.TimeoutError:
+            raise
+        except Exception:
+            ranked_candidates = apply_fallback_ranking(session.utterance, features, rejected_id)
+
+        # セッション更新（次の confirmation に備える）
+        _store_session(SessionContext(
+            request_id=request_data.request_id,
+            utterance=session.utterance,
+            reference_frame=session.reference_frame,
+            objects=session.objects,
+            user_pose=session.user_pose,
+            robot_pose=session.robot_pose,
+            ranked_candidates=ranked_candidates,
+            last_updated_epoch=_now_epoch(),
+        ))
+
+        return [_build_result_message(
+            request_id=request_data.request_id,
+            reference_frame=session.reference_frame,
+            ranked_candidates=ranked_candidates,
+            reasoning=f"re-selection after rejection of {rejected_id}",
+        )]
+
+    # ── ユーザーが承認した場合 → ロボットピック ──
     target = next((obj for obj in session.objects if obj.id == request_data.confirmed_object_id), None)
     if target is None:
         return [{
@@ -484,6 +570,108 @@ async def _process_confirmation_request(request_data: ConfirmationRequest) -> Li
     )
 
     return [started, final]
+
+
+async def _process_confirmation_interpretation_request(request_data: ConfirmationInterpretationRequest) -> Any:
+    session_request_id = request_data.original_request_id or request_data.request_id
+    session = _get_session(session_request_id)
+    if session is None:
+        return {
+            "type": "error",
+            "request_id": request_data.request_id,
+            "code": "E006",
+            "message": "session expired or unknown request_id/original_request_id",
+        }
+
+    top_candidate_id = session.ranked_candidates[0].get("object_id") if session.ranked_candidates else ""
+    current_target_id = request_data.confirmed_object_id or top_candidate_id or None
+    stage3 = await _run_stage3_confirmation(
+        request_data.utterance.text,
+        session.reference_frame,
+        top_candidate_id,
+        session.ranked_candidates,
+        current_target_id,
+    )
+
+    intent = stage3.intent
+    print(
+        f"【STAGE3】intent={intent}, conf={stage3.confidence:.2f}, reason={stage3.reason}, request_id={request_data.request_id}"
+    )
+
+    # accept: 既存 confirmation フローへ
+    if intent == "accept":
+        confirmed_object_id = stage3.confirmed_object_id or current_target_id or top_candidate_id
+        if not confirmed_object_id:
+            return {
+                "type": "error",
+                "request_id": request_data.request_id,
+                "code": "E004",
+                "message": "no target candidate available for accept",
+            }
+
+        confirmation = ConfirmationRequest(
+            type="confirmation",
+            request_id=request_data.request_id,
+            original_request_id=session_request_id,
+            confirmed_object_id=confirmed_object_id,
+            action=request_data.action,
+            accepted=True,
+        )
+        return await _process_confirmation_request(confirmation)
+
+    # reject: 既存 confirmation(reject) フローへ
+    if intent == "reject":
+        rejected_object_id = current_target_id or top_candidate_id
+        if not rejected_object_id:
+            return {
+                "type": "error",
+                "request_id": request_data.request_id,
+                "code": "E004",
+                "message": "no target candidate available for reject",
+            }
+
+        confirmation = ConfirmationRequest(
+            type="confirmation",
+            request_id=request_data.request_id,
+            original_request_id=session_request_id,
+            confirmed_object_id=rejected_object_id,
+            action=request_data.action,
+            accepted=False,
+            rejection_reason=stage3.reason or request_data.utterance.text,
+        )
+        return await _process_confirmation_request(confirmation)
+
+    # refine: 既存 refinement フローへ
+    if intent == "refine":
+        refinement = RefinementRequest(
+            type="refinement_request",
+            request_id=request_data.request_id,
+            original_request_id=session_request_id,
+            utterance={
+                "text": stage3.refinement_utterance or request_data.utterance.text,
+                "language": request_data.utterance.language,
+            },
+            user_pose=request_data.user_pose,
+            previous_target=current_target_id or top_candidate_id,
+        )
+        return await _process_refinement_request(refinement)
+
+    # unknown: 安全側で refine として再選定
+    refinement = RefinementRequest(
+        type="refinement_request",
+        request_id=request_data.request_id,
+        original_request_id=session_request_id,
+        utterance={
+            "text": request_data.utterance.text,
+            "language": request_data.utterance.language,
+        },
+        user_pose=request_data.user_pose,
+        previous_target=current_target_id or top_candidate_id,
+    )
+    result = await _process_refinement_request(refinement)
+    if isinstance(result, dict):
+        result["reasoning"] = f"stage3 unknown fallback: {stage3.reason}"
+    return result
 
 
 
@@ -743,110 +931,10 @@ async def save_grid_api(payload: dict):
 
 @app.get("/calibration")
 async def calibration_api():
-    await send_json_grid()
-    return {"status": "ok"}
-
-@app.websocket("/")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    print("【Server】Unity接続完了")
-    latest_spatial_request_id: Optional[str] = None
-    try:
-        while True:
-            # Unityからのメッセージ受信
-            try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-            except asyncio.TimeoutError:
-                # Unity側が一定間隔で送信しない場合でも、サーバー側からは切断しない。
-                # KeepAlive を送って接続維持を試みる。
-                await websocket.send_text(json.dumps({"eventId": "KeepAlive", "payload": "{}"}))
-                continue
-
-            message = _parse_json_message(data)
-            
-            event_id = message.get("eventId")
-
-            if event_id == "SaveGridConfig":
-                grid_data = json.loads(message.get("payload", "{}"))
-                filename = save_grid_to_file(grid_data)
-                
-                # 結果をUnityに返す
-                response = {
-                    "eventId": "SaveGridConfigResult",
-                    "payload": json.dumps({"status": "success", "filename": filename})
-                }
-                await websocket.send_text(json.dumps(response))
-            
-            elif event_id == "SaveRobotMarkerConfig":
-                marker_data = json.loads(message.get("payload", "{}"))
-                filename = save_robot_marker_config(marker_data)
-                
-                response = {
-                    "eventId": "SaveRobotMarkerConfigResult",
-                    "payload": json.dumps({"status": "success", "filename": filename})
-                }
-                await websocket.send_text(json.dumps(response))
-                print(f"【Server】ロボットマーカー設定を保存しました: {filename}")
-            
-            elif event_id == "XarmPick":
-                payload = json.loads(message.get("payload", "{}"))
-                x = payload.get("x")
-                y = payload.get("y")
-
-                if robot is not None:
-                    try:
-                        ok, msg = robot.pick_at(x, y)
-                        result_payload = {"success": ok, "message": msg}
-                    except Exception as exc:
-                        result_payload = {"success": False, "message": str(exc)}
-                else:
-                    result_payload = {"success": False, "message": "robot is not connected"}
-
-                await websocket.send_text(json.dumps({
-                    "eventId": "XarmPickResult",
-                    "payload": json.dumps(result_payload)
-                }))
-
-            elif event_id in {"spatial_reference_request", "refinement_request", "confirmation"}:
-                payload = message.get("payload", "{}")
-                if isinstance(payload, str):
-                    spatial_message = _parse_json_message(payload) if payload.strip() else {}
-                elif isinstance(payload, dict):
-                    spatial_message = payload
-                else:
-                    spatial_message = {}
-
-                if "type" not in spatial_message:
-                    spatial_message["type"] = message.get("eventId")
-
-                if spatial_message.get("type") in {"spatial_reference_request", "refinement_request"}:
-                    request_id = spatial_message.get("request_id")
-                    if isinstance(request_id, str) and request_id:
-                        latest_spatial_request_id = request_id
-
-                if spatial_message.get("type") == "confirmation":
-                    if not spatial_message.get("original_request_id") and latest_spatial_request_id:
-                        spatial_message["original_request_id"] = latest_spatial_request_id
-                        _debug_ws("server", "/", spatial_message, note="filled original_request_id from latest session")
-
-                _debug_ws("unity->server", "/", spatial_message, note=f"eventId={event_id}")
-                response = await _route_spatial_message(spatial_message)
-
-                response_list = response if isinstance(response, list) else [response]
-                for item in response_list:
-                    packet = _as_unity_packet(item)
-                    _debug_ws("server->unity", "/", item, note=f"eventId={packet.get('eventId')}")
-                    await websocket.send_text(json.dumps(packet, ensure_ascii=False))
-
-            else:
-                print(f"【Server】WS unhandled eventId: {event_id}")
-                
-    except WebSocketDisconnect as e:
-        manager.disconnect(websocket)
-        print(f"【Server】Unity切断 code={getattr(e, 'code', None)}")
-    except Exception as e:
-        print(f"【Server】エラー: {e!r}")
-        manager.disconnect(websocket)
+    return {
+        "status": "deprecated",
+        "message": "Use WebSocket /spatial endpoint for spatial flow. Legacy root WebSocket broadcast was removed.",
+    }
 
 
 @app.websocket("/spatial")
@@ -877,7 +965,7 @@ async def spatial_ws_endpoint(websocket: WebSocket):
                 if isinstance(request_id, str) and request_id:
                     latest_spatial_request_id = request_id
 
-            if message.get("type") == "confirmation":
+            if message.get("type") in {"confirmation", "confirmation_interpretation_request"}:
                 if not message.get("original_request_id") and latest_spatial_request_id:
                     message["original_request_id"] = latest_spatial_request_id
                     _debug_ws("server", "/spatial", message, note="filled original_request_id from latest session")

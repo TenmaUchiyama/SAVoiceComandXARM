@@ -106,10 +106,28 @@ namespace SA_XARM.SpatialRef.Data
         public string original_request_id;
         public string confirmed_object_id;
         public string action = "pick";
+        public bool accepted = true;
+        public string rejection_reason;
 
         public ConfirmationMessage()
         {
             type = "confirmation";
+        }
+    }
+
+    [Serializable]
+    public class ConfirmationInterpretationRequest : BaseMessage
+    {
+        public string request_id;
+        public string original_request_id;
+        public Utterance utterance;
+        public string confirmed_object_id;
+        public string action = "pick";
+        public UserPose user_pose;
+
+        public ConfirmationInterpretationRequest()
+        {
+            type = "confirmation_interpretation_request";
         }
     }
 

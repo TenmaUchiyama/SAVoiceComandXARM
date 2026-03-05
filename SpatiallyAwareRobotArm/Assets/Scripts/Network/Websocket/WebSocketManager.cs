@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using NativeWebSocket; // GitHubから導入が必要
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using TMPro;
 using System.Threading.Tasks;
 
@@ -28,6 +29,7 @@ public class WebSocketManager : MonoBehaviour
     [Header("Settings")]
     [SerializeField] private string serverAddress = "192.168.108.164";
     [SerializeField] private string serverPort = "8080";
+    [SerializeField] private string spatialPath = "/spatial";
     [SerializeField] private bool autoConnectOnStart = false; // ← 自動接続スイッチ
     [SerializeField] private float reconnectIntervalSeconds = 2f;
 
@@ -58,7 +60,9 @@ public class WebSocketManager : MonoBehaviour
         {
             Destroy(gameObject);
         }
-        serverUrl = $"ws://{serverAddress}:{serverPort}";
+        string normalizedPath = string.IsNullOrWhiteSpace(spatialPath) ? "/spatial" : spatialPath.Trim();
+        if (!normalizedPath.StartsWith("/")) normalizedPath = "/" + normalizedPath;
+        serverUrl = $"ws://{serverAddress}:{serverPort}{normalizedPath}";
     }
 
     private void Start()
@@ -168,15 +172,35 @@ public class WebSocketManager : MonoBehaviour
             var json = System.Text.Encoding.UTF8.GetString(bytes);
             try 
             {
-                var packet = JsonConvert.DeserializeObject<WSPacket>(json);
-                string eventId = packet?.eventId?.Trim();
+                string eventId = null;
+                string payload = json;
+
+                var token = JToken.Parse(json);
+                if (token is JObject obj)
+                {
+                    // legacy packet: { eventId, payload }
+                    if (obj.TryGetValue("eventId", out var legacyEventToken))
+                    {
+                        eventId = legacyEventToken?.ToString()?.Trim();
+                        payload = obj.TryGetValue("payload", out var payloadToken)
+                            ? payloadToken?.ToString()
+                            : "{}";
+                    }
+                    // /spatial raw response: { type, ... }
+                    else if (obj.TryGetValue("type", out var typeToken))
+                    {
+                        eventId = typeToken?.ToString()?.Trim();
+                        payload = json;
+                    }
+                }
+
                 SpatialDebugLog.Instance.Log($"[WS] Received event '{eventId}'", true, "white");
-             
+
                 if (!string.IsNullOrEmpty(eventId) && _handlers.ContainsKey(eventId))
                 {
                     try
                     {
-                        _handlers[eventId]?.Invoke(packet.payload);
+                        _handlers[eventId]?.Invoke(payload);
                     }
                     catch (Exception ex)
                     {
@@ -268,9 +292,24 @@ public class WebSocketManager : MonoBehaviour
     {
         if (_websocket == null || _websocket.State != WebSocketState.Open) return;
         SpatialDebugLog.Instance.Log($"[WS] Sending event '{eventId}'", true, "cyan");
+
         string jsonPayload = JsonConvert.SerializeObject(data);
-        var packet = new WSPacket { eventId = eventId, payload = jsonPayload };
-        _websocket.SendText(JsonConvert.SerializeObject(packet));
+        JObject payloadObj;
+        try
+        {
+            payloadObj = JObject.Parse(jsonPayload);
+        }
+        catch
+        {
+            payloadObj = new JObject();
+        }
+
+        if (!payloadObj.ContainsKey("type") && !string.IsNullOrWhiteSpace(eventId))
+        {
+            payloadObj["type"] = eventId;
+        }
+
+        _websocket.SendText(payloadObj.ToString(Formatting.None));
         
         #if !UNITY_WEBGL || UNITY_EDITOR
             // 送信後に即座にメッセージキューを処理
@@ -317,9 +356,12 @@ public class WebSocketManager : MonoBehaviour
 
         internal async Task<string> SendPickGridRequest(int x_grid, int y_grid)
         {
-            Send("XarmPick", new { x = x_grid, y = y_grid });
-            SpatialDebugLog.Instance.Log($"<color=white>[WebSocketManager] Sent XarmPick request: ({x_grid}, {y_grid})</color>", true);
-            return ""; // WebSocketは非同期なので即座に返す
+            SpatialDebugLog.Instance.Log(
+                "<color=yellow>[WebSocketManager] XarmPick over WS is removed. Use spatial flow (/spatial) confirmation path.</color>",
+                true
+            );
+            await Task.CompletedTask;
+            return "unsupported";
         }
     }
 }

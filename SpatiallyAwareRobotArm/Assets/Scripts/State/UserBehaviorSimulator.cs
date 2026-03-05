@@ -16,11 +16,9 @@ namespace SA_XARM.SpatialRef.State
         [Header("Confirmation")]
         [SerializeField] private bool autoConfirmOnResult = true;
         [SerializeField] private float confirmationDelaySeconds = 0.2f;
-        [SerializeField] private string confirmationObjectIdOverride = string.Empty;
-
-        [Header("Refinement")]
+        [SerializeField] private string targetObjectIdOverride = string.Empty;
         [TextArea(2, 4)]
-        [SerializeField] private string refinementText = "右の赤い箱にして";
+        [SerializeField] private string feedbackUtteranceText = "はい";
 
         [Header("Auto Run")]
         [SerializeField] private bool runScenarioOnEnable = false;
@@ -70,16 +68,10 @@ namespace SA_XARM.SpatialRef.State
             appStateManager.OnUtteranceReceived(utteranceText);
         }
 
-        public void SendConfirmation()
+        public void SendFeedback()
         {
             if (!TryAutoBind()) return;
-            appStateManager.OnUserConfirmed(confirmationObjectIdOverride);
-        }
-
-        public void SendRefinement()
-        {
-            if (!TryAutoBind()) return;
-            appStateManager.OnUserRefined(refinementText);
+            appStateManager.OnUserFeedback(feedbackUtteranceText, targetObjectIdOverride);
         }
 
         public void RunUtteranceThenAutoConfirmOnce()
@@ -108,7 +100,7 @@ namespace SA_XARM.SpatialRef.State
                 yield return new WaitForSeconds(confirmationDelaySeconds);
             }
 
-            SendConfirmation();
+            SendFeedback();
             _armedSingleAutoConfirm = false;
             _confirmRoutine = null;
         }
