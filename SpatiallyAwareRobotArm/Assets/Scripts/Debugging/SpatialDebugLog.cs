@@ -44,14 +44,14 @@ public class SpatialDebugLog : MonoBehaviour
     public void Log(string message, bool doLog = true,string color = "white")
     {
         // UnityエディタのPlayモードでは、Debug.Logのみを使用（UIに依存しない）
-        if (Application.isEditor)
-        {
-            if (globalLogEnabled && doLog)
-            {
-                Debug.Log($"<color={color}>[{System.DateTime.Now:HH:mm:ss}] {message}</color>");
-            }
-            return;
-        }
+        // if (Application.isEditor)
+        // {
+        //     if (globalLogEnabled && doLog)
+        //     {
+        //         Debug.Log($"<color={color}>[{System.DateTime.Now:HH:mm:ss}] {message}</color>");
+        //     }
+        //     return;
+        // }
 
         // ビルド版では通常のUI表示も行う
         Debug.Log($"<color={color}>{message}</color>");

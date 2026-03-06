@@ -591,7 +591,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   serverAddress: 192.168.108.164
   serverPort: 8080
+  spatialPath: /spatial
   autoConnectOnStart: 1
+  reconnectIntervalSeconds: 2
   socketConnectedStatusText: {fileID: 565758312}
 --- !u!4 &104042874
 Transform:
@@ -2526,6 +2528,55 @@ Transform:
   - {fileID: 769163438}
   - {fileID: 1284674714}
   m_Father: {fileID: 616782532}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1063988980
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1063988982}
+  - component: {fileID: 1063988981}
+  m_Layer: 0
+  m_Name: Debug
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1063988981
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1063988980}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 634cd940ad99ac2468d15f1939148a4a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  listRequestEventId: pc_debug_persistent_list_request
+  listResponseEventId: pc_debug_persistent_list_response
+  readJsonRequestEventId: pc_debug_read_json_request
+  readJsonResponseEventId: pc_debug_read_json_response
+  autoSubscribeOnEnable: 1
+--- !u!4 &1063988982
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1063988980}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.10763645, y: 1.3813684, z: 0.89697087}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1091215961
 GameObject:
@@ -4896,6 +4947,11 @@ MonoBehaviour:
   textMarkerRobot: Robot
   gridWidth: 4
   gridHeight: 4
+  defaultGridColor: unknown
+  gridColorSettings: []
+  editGridX: 0
+  editGridY: 0
+  editColor: red
   gridJsonFileName: qr_grid_config.json
   robotJsonFileName: qr_robot_config.json
   wsSaveGridEvent: SaveGridConfig
@@ -6322,3 +6378,4 @@ SceneRoots:
   - {fileID: 1965972891}
   - {fileID: 752226952}
   - {fileID: 590679309}
+  - {fileID: 1063988982}

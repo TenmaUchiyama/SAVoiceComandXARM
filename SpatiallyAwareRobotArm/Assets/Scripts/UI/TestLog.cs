@@ -11,6 +11,13 @@ public class TestLog : MonoBehaviour
         InvokeRepeating(nameof(LogTestMessage), 0f, 1f); // 毎秒テストログを出力
     }
 
+
+
+    public void LogText(string text = "test log")
+    {
+        SpatialDebugLog.Instance.Log(text);
+    }   
+
     /// <summary>
     /// テスト用：毎秒ログを出力
     /// </summary>

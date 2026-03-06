@@ -1492,7 +1492,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   appStateManager: {fileID: 1644278176}
   utteranceText: "\u76EE\u306E\u524D\u306E\u7BB1\u3092\u53D6\u3063\u3066"
-  autoConfirmOnResult: 1
+  autoConfirmOnResult: 0
   confirmationDelaySeconds: 0.2
   targetObjectIdOverride: 
   feedbackUtteranceText: "\u306F\u3044"
@@ -1506,7 +1506,7 @@ Transform:
   m_GameObject: {fileID: 1557343677}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.22781675, y: -0.66951495, z: 0.49204847}
+  m_LocalPosition: {x: 0.225, y: -0.66951495, z: 0.49204847}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
