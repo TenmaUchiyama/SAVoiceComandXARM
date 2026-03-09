@@ -14,9 +14,13 @@ LIST_REQ = "pc_debug_persistent_list_request"
 LIST_RES = "pc_debug_persistent_list_response"
 READ_REQ = "pc_debug_read_json_request"
 READ_RES = "pc_debug_read_json_response"
+CALIB_REQ = "pc_debug_calibration_request"
+CALIB_RES = "pc_debug_calibration_response"
 KEY_INPUT_EVENT = "KeyInput"
 RESTORE_GRID_EVENT = "RestoreGridConfig"
+RESTORE_ROBOT_EVENT = "RestoreRobotMarkerConfig"
 SAVE_GRID_EVENT = "SaveGridConfig"
+SAVE_ROBOT_EVENT = "SaveRobotConfig"
 
 
 def ensure_dict(value: Any) -> Dict[str, Any]:
@@ -113,12 +117,53 @@ class PCDebugWsCliServer:
             reverse=True,
         )
 
+    def list_saved_robots(self) -> List[Path]:
+        return sorted(
+            self.save_dir.glob("qr_robot_config_*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+
     def save_grid_json(self, grid_data: Any) -> Path:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         save_path = self.save_dir / f"qr_grid_config_{timestamp}.json"
         with open(save_path, "w", encoding="utf-8") as f:
             json.dump(grid_data, f, indent=2, ensure_ascii=False)
         return save_path
+
+    def save_robot_json(self, robot_data: Any) -> Path:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = self.save_dir / f"qr_robot_config_{timestamp}.json"
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(robot_data, f, indent=2, ensure_ascii=False)
+        return save_path
+
+    async def import_json_from_unity(self, relative_path: str, kind: str) -> Path:
+        result = await self.request(
+            READ_REQ,
+            READ_RES,
+            {"relative_path": relative_path},
+        )
+
+        if not result.get("success"):
+            raise RuntimeError(result.get("error") or "read request failed")
+
+        content = result.get("content")
+        if content is None:
+            raise RuntimeError("read response missing content")
+
+        try:
+            parsed = json.loads(content)
+        except Exception as exc:
+            raise RuntimeError(f"failed to parse JSON content: {exc}")
+
+        normalized_kind = (kind or "").strip().lower()
+        if normalized_kind == "grid":
+            return self.save_grid_json(parsed)
+        if normalized_kind == "robot":
+            return self.save_robot_json(parsed)
+
+        raise RuntimeError(f"unknown import kind: {kind}")
 
     def load_saved_grid(self, name: Optional[str] = None) -> Tuple[str, Any]:
         target: Optional[Path] = None
@@ -131,6 +176,23 @@ class PCDebugWsCliServer:
             files = self.list_saved_grids()
             if not files:
                 raise FileNotFoundError(f"No saved grid JSON found in: {self.save_dir}")
+            target = files[0]
+
+        with open(target, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return target.name, data
+
+    def load_saved_robot(self, name: Optional[str] = None) -> Tuple[str, Any]:
+        target: Optional[Path] = None
+        if name:
+            candidate = self.save_dir / name
+            if not candidate.exists():
+                raise FileNotFoundError(f"Robot file not found: {candidate}")
+            target = candidate
+        else:
+            files = self.list_saved_robots()
+            if not files:
+                raise FileNotFoundError(f"No saved robot JSON found in: {self.save_dir}")
             target = files[0]
 
         with open(target, "r", encoding="utf-8") as f:
@@ -151,6 +213,23 @@ class PCDebugWsCliServer:
         await self.send_legacy_event(RESTORE_GRID_EVENT, payload)
         print(f"[INFO] Restored grid sent: {filename}")
 
+    async def restore_robot(self, name: Optional[str] = None) -> None:
+        filename, robot_data = self.load_saved_robot(name)
+        payload = {
+            "type": "marker_config",
+            "filename": filename,
+            "markerData": robot_data,
+        }
+        await self.send_legacy_event(RESTORE_ROBOT_EVENT, payload)
+        print(f"[INFO] Restored robot marker sent: {filename}")
+
+    async def restore_all(self, grid_name: Optional[str] = None, robot_name: Optional[str] = None) -> None:
+        await self.restore_grid(grid_name)
+        try:
+            await self.restore_robot(robot_name)
+        except FileNotFoundError:
+            print("[WARN] Robot config was not found. Sent only grid restore.")
+
     def handle_save_grid_event(self, payload_raw: Any) -> None:
         if payload_raw is None or payload_raw == "":
             print("[WARN] SaveGridConfig payload is empty")
@@ -160,9 +239,24 @@ class PCDebugWsCliServer:
         if isinstance(grid_data, dict) and "value" in grid_data and len(grid_data) == 1:
             grid_data = grid_data["value"]
 
+        if isinstance(grid_data, dict) and "gridPoints" in grid_data:
+            grid_data = grid_data.get("gridPoints")
+
         save_path = self.save_grid_json(grid_data)
         count = len(grid_data) if isinstance(grid_data, list) else "unknown"
         print(f"[SAVE] Grid config saved: {save_path} (points={count})")
+
+    def handle_save_robot_event(self, payload_raw: Any) -> None:
+        if payload_raw is None or payload_raw == "":
+            print("[WARN] SaveRobotConfig payload is empty")
+            return
+
+        robot_data = payload_raw
+        if isinstance(robot_data, dict) and "value" in robot_data and len(robot_data) == 1:
+            robot_data = robot_data["value"]
+
+        save_path = self.save_robot_json(robot_data)
+        print(f"[SAVE] Robot config saved: {save_path}")
 
     async def request(self, req_event: str, res_event: str, payload: Dict[str, Any], timeout_sec: float = 10.0) -> Dict[str, Any]:
         request_id = str(payload.get("request_id") or uuid.uuid4())
@@ -196,6 +290,8 @@ class PCDebugWsCliServer:
 
                     if event_id == SAVE_GRID_EVENT:
                         self.handle_save_grid_event(payload_raw)
+                    elif event_id == SAVE_ROBOT_EVENT:
+                        self.handle_save_robot_event(payload_raw)
 
                     request_id = str(payload.get("request_id", "")).strip()
                     if request_id:
@@ -221,9 +317,16 @@ class PCDebugWsCliServer:
             "  wait                          : wait for Unity connection\n"
             "  list [recursive]              : list Application.persistentDataPath\n"
             "  read <relative_path.json>     : read JSON file content\n"
+            "  calib <action>                : control Unity calibration (teach|restore|record|robot|clear|restore_local|status)\n"
             "  key <w|r|space|...>           : send legacy KeyInput event\n"
-            "  restore [saved_file.json]     : send RestoreGridConfig from local save_dir\n"
+            "  restore [grid_file.json]      : send latest/specified GRID from local save_dir\n"
+            "  restore_robot [robot_file.json]: send latest/specified ROBOT marker from local save_dir\n"
+            "  restore_all [grid_file] [robot_file] : send GRID and ROBOT restore from local save_dir\n"
             "  grids [limit]                 : list saved local grid files\n"
+            "  robots [limit]                : list saved local robot files\n"
+            "  import_grid [relative_path]   : fetch JSON from Unity persistentDataPath and save as local GRID\n"
+            "  import_robot [relative_path]  : fetch JSON from Unity persistentDataPath and save as local ROBOT\n"
+            "  import_pair [grid] [robot]    : fetch both files (defaults: qr_grid_config.json / qr_robot_config.json)\n"
             "  legacy <event> <json_object>  : send legacy eventId/payload packet\n"
             "  raw <event> <json_object>     : send raw event for debug\n"
             "  help                          : show this help\n"
@@ -260,6 +363,23 @@ class PCDebugWsCliServer:
                     print(f"[INFO] No saved grids in: {self.save_dir}")
                     continue
                 print(f"[INFO] saved grids ({min(limit, len(files))}/{len(files)}):")
+                for file_path in files[:limit]:
+                    print(f"  - {file_path.name}")
+                continue
+
+            if cmd == "robots":
+                limit = 10
+                if len(parts) > 1:
+                    try:
+                        limit = max(1, int(parts[1]))
+                    except Exception:
+                        print("[ERR] robots limit must be integer")
+                        continue
+                files = self.list_saved_robots()
+                if not files:
+                    print(f"[INFO] No saved robots in: {self.save_dir}")
+                    continue
+                print(f"[INFO] saved robots ({min(limit, len(files))}/{len(files)}):")
                 for file_path in files[:limit]:
                     print(f"  - {file_path.name}")
                 continue
@@ -304,12 +424,96 @@ class PCDebugWsCliServer:
                     print(f"[ERR] key failed: {exc}")
                 continue
 
+            if cmd == "calib":
+                if len(parts) < 2:
+                    print("usage: calib <teach|restore|record|robot|clear|restore_local|status>")
+                    continue
+
+                action = parts[1].strip().lower()
+                allowed_actions = {
+                    "teach",
+                    "restore",
+                    "record",
+                    "robot",
+                    "clear",
+                    "restore_local",
+                    "status",
+                }
+
+                if action not in allowed_actions:
+                    print(f"[ERR] unknown calib action: {action}")
+                    print("      allowed: teach, restore, record, robot, clear, restore_local, status")
+                    continue
+
+                try:
+                    result = await self.request(
+                        CALIB_REQ,
+                        CALIB_RES,
+                        {"action": action},
+                    )
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                except Exception as exc:
+                    print(f"[ERR] calib failed: {exc}")
+                continue
+
             if cmd in {"restore", "j"}:
                 target_name = parts[1] if len(parts) > 1 else None
                 try:
                     await self.restore_grid(target_name)
                 except Exception as exc:
                     print(f"[ERR] restore failed: {exc}")
+                continue
+
+            if cmd in {"restore_robot", "jr"}:
+                target_name = parts[1] if len(parts) > 1 else None
+                try:
+                    await self.restore_robot(target_name)
+                except Exception as exc:
+                    print(f"[ERR] restore_robot failed: {exc}")
+                continue
+
+            if cmd in {"restore_all", "ja"}:
+                grid_name = parts[1] if len(parts) > 1 else None
+                robot_name = parts[2] if len(parts) > 2 else None
+                try:
+                    await self.restore_all(grid_name=grid_name, robot_name=robot_name)
+                except Exception as exc:
+                    print(f"[ERR] restore_all failed: {exc}")
+                continue
+
+            if cmd == "import_grid":
+                relative_path = parts[1] if len(parts) > 1 else "qr_grid_config.json"
+                try:
+                    save_path = await self.import_json_from_unity(relative_path, kind="grid")
+                    print(f"[IMPORT] GRID saved to: {save_path}")
+                except Exception as exc:
+                    print(f"[ERR] import_grid failed: {exc}")
+                continue
+
+            if cmd == "import_robot":
+                relative_path = parts[1] if len(parts) > 1 else "qr_robot_config.json"
+                try:
+                    save_path = await self.import_json_from_unity(relative_path, kind="robot")
+                    print(f"[IMPORT] ROBOT saved to: {save_path}")
+                except Exception as exc:
+                    print(f"[ERR] import_robot failed: {exc}")
+                continue
+
+            if cmd == "import_pair":
+                grid_path = parts[1] if len(parts) > 1 else "qr_grid_config.json"
+                robot_path = parts[2] if len(parts) > 2 else "qr_robot_config.json"
+                try:
+                    grid_save_path = await self.import_json_from_unity(grid_path, kind="grid")
+                    print(f"[IMPORT] GRID saved to: {grid_save_path}")
+                except Exception as exc:
+                    print(f"[ERR] import_pair(grid) failed: {exc}")
+                    continue
+
+                try:
+                    robot_save_path = await self.import_json_from_unity(robot_path, kind="robot")
+                    print(f"[IMPORT] ROBOT saved to: {robot_save_path}")
+                except Exception as exc:
+                    print(f"[WARN] import_pair(robot) failed: {exc}")
                 continue
 
             if cmd == "legacy":
@@ -368,7 +572,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PC debugger WebSocket CLI for Unity/HoloLens")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8080)
-    parser.add_argument("--save-dir", default="saved_grids", help="Directory for local grid JSON save/load")
+    parser.add_argument("--save-dir", default="saved_grids", help="Directory for local grid/robot JSON save/load")
     return parser.parse_args()
 
 

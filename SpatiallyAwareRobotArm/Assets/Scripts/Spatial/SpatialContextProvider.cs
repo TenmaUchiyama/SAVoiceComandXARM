@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using SA_XARM.Calibration;
 using SA_XARM.SpatialRef.Data;
 using UnityEngine;
 
@@ -11,6 +12,12 @@ namespace SA_XARM.SpatialRef.Spatial
         [SerializeField] private Camera mainCamera;
         [SerializeField] private Transform robotAnchor;
         [SerializeField] private ObjectRegistry objectRegistry;
+
+        [Header("Robot Pose Fallback")]
+        [SerializeField] private bool resolveRobotPoseFromQRGridTool = true;
+        [SerializeField] private bool requireRemoteRestoreRequestForRobotPose = true;
+
+        private QRGridTool cachedQrGridTool;
 
         public UserPose GetUserPose()
         {
@@ -39,19 +46,48 @@ namespace SA_XARM.SpatialRef.Spatial
 
         public RobotPose GetRobotPose()
         {
-            if (robotAnchor == null)
+            if (robotAnchor != null)
             {
                 return new RobotPose
                 {
-                    position = new Vec3(),
-                    forward = new Vec3(0f, 0f, 1f)
+                    position = Vec3.FromVector3(robotAnchor.position),
+                    forward = Vec3.FromVector3(robotAnchor.forward)
                 };
+            }
+
+            if (resolveRobotPoseFromQRGridTool)
+            {
+                if (cachedQrGridTool == null)
+                {
+                    cachedQrGridTool = FindObjectOfType<QRGridTool>(true);
+                }
+
+                if (cachedQrGridTool != null)
+                {
+                    if (requireRemoteRestoreRequestForRobotPose && !cachedQrGridTool.HasRemoteRestoreRequest())
+                    {
+                        return new RobotPose
+                        {
+                            position = new Vec3(),
+                            forward = new Vec3(0f, 0f, 1f)
+                        };
+                    }
+
+                    if (cachedQrGridTool.TryGetRobotWorldPose(out var worldPos, out var worldForward))
+                    {
+                        return new RobotPose
+                        {
+                            position = Vec3.FromVector3(worldPos),
+                            forward = Vec3.FromVector3(worldForward)
+                        };
+                    }
+                }
             }
 
             return new RobotPose
             {
-                position = Vec3.FromVector3(robotAnchor.position),
-                forward = Vec3.FromVector3(robotAnchor.forward)
+                position = new Vec3(),
+                forward = new Vec3(0f, 0f, 1f)
             };
         }
 

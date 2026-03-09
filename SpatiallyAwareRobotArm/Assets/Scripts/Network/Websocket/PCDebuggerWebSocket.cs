@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using SA_XARM.Calibration;
 
 namespace SA_XARM.Network.Websocket
 {
@@ -40,6 +41,24 @@ namespace SA_XARM.Network.Websocket
         public string error;
     }
 
+    [Serializable]
+    public class PcDebugCalibrationRequest
+    {
+        public string request_id;
+        public string action;
+    }
+
+    [Serializable]
+    public class PcDebugCalibrationResponse
+    {
+        public string request_id;
+        public bool success;
+        public string action;
+        public string message;
+        public QRGridToolDebugStatus qr_grid_tool_status;
+        public string error;
+    }
+
     public class PCDebuggerWebSocket : MonoBehaviour
     {
         [Header("WebSocket Event IDs")]
@@ -47,6 +66,8 @@ namespace SA_XARM.Network.Websocket
         [SerializeField] private string listResponseEventId = "pc_debug_persistent_list_response";
         [SerializeField] private string readJsonRequestEventId = "pc_debug_read_json_request";
         [SerializeField] private string readJsonResponseEventId = "pc_debug_read_json_response";
+        [SerializeField] private string calibrationRequestEventId = "pc_debug_calibration_request";
+        [SerializeField] private string calibrationResponseEventId = "pc_debug_calibration_response";
 
         [Header("Settings")]
         [SerializeField] private bool autoSubscribeOnEnable = true;
@@ -77,6 +98,7 @@ namespace SA_XARM.Network.Websocket
 
             _webSocketManager.On<PcDebugPersistentListRequest>(listRequestEventId, OnListRequestReceived);
             _webSocketManager.On<PcDebugReadJsonRequest>(readJsonRequestEventId, OnReadJsonRequestReceived);
+            _webSocketManager.On<PcDebugCalibrationRequest>(calibrationRequestEventId, OnCalibrationRequestReceived);
             SafeLog("[PCDebuggerWS] Subscribed request handlers.", "cyan");
         }
 
@@ -87,6 +109,156 @@ namespace SA_XARM.Network.Websocket
 
             manager.Off(listRequestEventId);
             manager.Off(readJsonRequestEventId);
+            manager.Off(calibrationRequestEventId);
+        }
+
+        private void OnCalibrationRequestReceived(PcDebugCalibrationRequest request)
+        {
+            var response = new PcDebugCalibrationResponse
+            {
+                request_id = request?.request_id,
+                success = false,
+                action = request?.action,
+                message = null,
+                qr_grid_tool_status = null,
+                error = null
+            };
+
+            try
+            {
+                string action = (request?.action ?? string.Empty).Trim().ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(action))
+                {
+                    response.error = "action is required.";
+                    Send(calibrationResponseEventId, response);
+                    return;
+                }
+
+                QRGridTool gridTool = FindObjectOfType<QRGridTool>(true);
+                QRGridCalibrator legacyCalibrator = FindObjectOfType<QRGridCalibrator>(true);
+                GridObjectRestorer legacyRestorer = FindObjectOfType<GridObjectRestorer>(true);
+
+                switch (action)
+                {
+                    case "teach":
+                    case "mode_teach":
+                    case "start_calibration":
+                        if (gridTool == null)
+                        {
+                            response.error = "QRGridTool not found in scene.";
+                            break;
+                        }
+                        gridTool.SetTeachModeFromRemote();
+                        response.success = true;
+                        response.message = "Mode set to TEACH.";
+                        break;
+
+                    case "restore":
+                    case "mode_restore":
+                        if (gridTool == null)
+                        {
+                            response.error = "QRGridTool not found in scene.";
+                            break;
+                        }
+                        gridTool.SetRestoreModeFromRemote();
+                        response.success = true;
+                        response.message = "Mode set to RESTORE.";
+                        break;
+
+                    case "record":
+                    case "space":
+                    case "next":
+                        if (gridTool != null)
+                        {
+                            gridTool.TriggerSpaceActionFromRemote();
+                            response.success = true;
+                            response.message = "Executed SPACE action on QRGridTool.";
+                        }
+                        else if (legacyCalibrator != null)
+                        {
+                            legacyCalibrator.RecordCurrentPoint();
+                            response.success = true;
+                            response.message = "Recorded one point on QRGridCalibrator.";
+                        }
+                        else if (legacyRestorer != null)
+                        {
+                            legacyRestorer.TryRestoreObjects();
+                            response.success = true;
+                            response.message = "Triggered restore on GridObjectRestorer.";
+                        }
+                        else
+                        {
+                            response.error = "No calibration component found (QRGridTool/QRGridCalibrator/GridObjectRestorer).";
+                        }
+                        break;
+
+                    case "record_robot":
+                    case "robot":
+                    case "l":
+                        if (gridTool == null)
+                        {
+                            response.error = "QRGridTool not found in scene.";
+                            break;
+                        }
+                        gridTool.TriggerRecordRobotFromRemote();
+                        response.success = true;
+                        response.message = "Recorded robot point.";
+                        break;
+
+                    case "restore_local":
+                    case "apply_restore":
+                        if (gridTool != null)
+                        {
+                            gridTool.TryRestoreFromLocalFiles();
+                            response.success = true;
+                            response.message = "Triggered local restore on QRGridTool.";
+                        }
+                        else if (legacyRestorer != null)
+                        {
+                            legacyRestorer.TryRestoreObjects();
+                            response.success = true;
+                            response.message = "Triggered restore on GridObjectRestorer.";
+                        }
+                        else
+                        {
+                            response.error = "No restorer component found.";
+                        }
+                        break;
+
+                    case "clear":
+                    case "reset":
+                        if (gridTool == null)
+                        {
+                            response.error = "QRGridTool not found in scene.";
+                            break;
+                        }
+                        gridTool.ClearAllFromRemote();
+                        response.success = true;
+                        response.message = "Cleared QRGridTool state.";
+                        break;
+
+                    case "status":
+                        response.success = true;
+                        response.message = "Status collected.";
+                        break;
+
+                    default:
+                        response.error = $"unknown action: {action}";
+                        break;
+                }
+
+                if (gridTool != null)
+                {
+                    response.qr_grid_tool_status = gridTool.GetDebugStatus();
+                }
+            }
+            catch (Exception ex)
+            {
+                response.error = ex.Message;
+                SafeLogError($"[PCDebuggerWS] Calibration command failed: {ex.Message}");
+            }
+
+            Send(calibrationResponseEventId, response);
         }
 
         private void OnListRequestReceived(PcDebugPersistentListRequest request)

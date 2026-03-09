@@ -35,6 +35,19 @@ namespace SA_XARM.Calibration
         public Vector3? robotLocalPos = null; // Anchor(Local)
     }
 
+    [System.Serializable]
+    public class QRGridToolDebugStatus
+    {
+        public string mode;
+        public bool isAnchorReady;
+        public int currentRecordIndex;
+        public int totalPoints;
+        public bool hasSavedGrid;
+        public bool hasSavedRobot;
+        public bool hasRestored;
+        public bool useManualMarkers;
+    }
+
     public class QRGridTool : MonoBehaviour
     {
         // =========================
@@ -139,6 +152,7 @@ namespace SA_XARM.Calibration
         private readonly object lockObj = new object();
 
         private bool wsSubscribed = false;
+        private bool restoreRequestedFromRemote = false;
 
         // Manual cache
         private Vector3 _lastManualA;
@@ -251,6 +265,7 @@ namespace SA_XARM.Calibration
 
                     if (points != null && points.Count > 0)
                     {
+                        restoreRequestedFromRemote = true;
                         lock (lockObj)
                         {
                             pendingRemoteGridPoints = points;
@@ -288,6 +303,7 @@ namespace SA_XARM.Calibration
 
                     if (robotLocal.HasValue)
                     {
+                        restoreRequestedFromRemote = true;
                         lock (lockObj)
                         {
                             pendingRemoteRobotLocalPos = robotLocal.Value;
@@ -333,6 +349,94 @@ namespace SA_XARM.Calibration
             }
 
             UpdateUI();
+        }
+
+        public void SetTeachModeFromRemote()
+        {
+            SelectMode(Mode.Teach);
+        }
+
+        public void SetRestoreModeFromRemote()
+        {
+            restoreRequestedFromRemote = true;
+            SelectMode(Mode.Restore);
+        }
+
+        public bool HasRemoteRestoreRequest()
+        {
+            return restoreRequestedFromRemote;
+        }
+
+        public void TriggerSpaceActionFromRemote()
+        {
+            OnSpacePressed();
+        }
+
+        public void TriggerRecordRobotFromRemote()
+        {
+            OnLPressedRecordRobot();
+        }
+
+        public void ClearAllFromRemote()
+        {
+            ClearAll();
+        }
+
+        public QRGridToolDebugStatus GetDebugStatus()
+        {
+            return new QRGridToolDebugStatus
+            {
+                mode = mode.ToString(),
+                isAnchorReady = isAnchorReady,
+                currentRecordIndex = currentRecordIndex,
+                totalPoints = TotalPoints,
+                hasSavedGrid = hasSavedGrid,
+                hasSavedRobot = hasSavedRobot,
+                hasRestored = hasRestored,
+                useManualMarkers = useManualMarkers,
+            };
+        }
+
+        public bool TryGetRobotWorldPose(out Vector3 worldPos, out Vector3 worldForward)
+        {
+            worldPos = Vector3.zero;
+            worldForward = Vector3.forward;
+
+            if (spawnedRobotPoint != null)
+            {
+                worldPos = spawnedRobotPoint.transform.position;
+                worldForward = spawnedRobotPoint.transform.forward;
+                return true;
+            }
+
+            if (!isAnchorReady)
+            {
+                return false;
+            }
+
+            if (savedRobotLocalPos.HasValue)
+            {
+                Matrix4x4 anchorToWorld = worldToAnchor.inverse;
+                Vector3 local = savedRobotLocalPos.Value;
+
+                if (saveXZOnly)
+                    local.y = 0f;
+
+                worldPos = anchorToWorld.MultiplyPoint3x4(local);
+
+                if (forceWorldYToTableHeight && posOrigin.HasValue)
+                    worldPos.y = posOrigin.Value.y;
+
+                return true;
+            }
+
+            if (posRobotCurrent.HasValue)
+            {
+                worldPos = posRobotCurrent.Value;
+                return true;
+            }
+
+            return false;
         }
 
         private void OnSpacePressed()
@@ -519,7 +623,9 @@ namespace SA_XARM.Calibration
                 string json = JsonConvert.SerializeObject(recordedPoints, settings);
 
                 if (WebSocketManager.Instance != null)
-                    WebSocketManager.Instance.Send(wsSaveGridEvent, json);
+                {
+                    WebSocketManager.Instance.Send(wsSaveGridEvent, BuildGridSavePayload(recordedPoints));
+                }
                 else
                     SpatialDebugLog.Instance.Log("WebSocketManager.Instance is NULL -> cannot send grid", doLog, "red");
 
@@ -827,6 +933,7 @@ namespace SA_XARM.Calibration
             ClearSpawnedOnly();
             ResetTeachState();
             hasRestored = false;
+            restoreRequestedFromRemote = false;
 
             SpatialDebugLog.Instance.Log("Cleared spawned + reset teach state.", doLog, "yellow");
             UpdateUI();
@@ -954,7 +1061,39 @@ namespace SA_XARM.Calibration
             SpatialDebugLog.Instance.Log($"Updated grid colors and saved: {path}", doLog, "green");
 
             if (WebSocketManager.Instance != null)
-                WebSocketManager.Instance.Send(wsSaveGridEvent, json);
+            {
+                WebSocketManager.Instance.Send(wsSaveGridEvent, BuildGridSavePayload(points));
+            }
+        }
+
+        private object BuildGridSavePayload(List<GridPointData> points)
+        {
+            var safePoints = new List<object>(points.Count);
+            for (int i = 0; i < points.Count; i++)
+            {
+                var point = points[i];
+                if (point == null) continue;
+
+                safePoints.Add(new
+                {
+                    id = point.id,
+                    gridX = point.gridX,
+                    gridY = point.gridY,
+                    localPos = new
+                    {
+                        x = point.localPos.x,
+                        y = point.localPos.y,
+                        z = point.localPos.z,
+                    },
+                    color = point.color,
+                });
+            }
+
+            return new
+            {
+                gridPoints = safePoints,
+                count = safePoints.Count,
+            };
         }
 
         private void UpsertGridColorSetting(int gx, int gy, string color)

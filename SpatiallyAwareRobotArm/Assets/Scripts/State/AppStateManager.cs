@@ -55,7 +55,7 @@ namespace SA_XARM.SpatialRef.State
         {
             if (speechRecognitionManager != null)
             {
-                speechRecognitionManager._onSpeechRecognized.AddListener(OnUtteranceReceived);
+                speechRecognitionManager._onSpeechRecognized.AddListener(HandleSpeechRecognized);
                 speechRecognitionManager._onStartListening.AddListener(OnStartListening);
                 speechRecognitionManager._onStopListening.AddListener(OnStopListening);
             }
@@ -73,7 +73,7 @@ namespace SA_XARM.SpatialRef.State
         {
             if (speechRecognitionManager != null)
             {
-                speechRecognitionManager._onSpeechRecognized.RemoveListener(OnUtteranceReceived);
+                speechRecognitionManager._onSpeechRecognized.RemoveListener(HandleSpeechRecognized);
                 speechRecognitionManager._onStartListening.RemoveListener(OnStartListening);
                 speechRecognitionManager._onStopListening.RemoveListener(OnStopListening);
             }
@@ -84,6 +84,28 @@ namespace SA_XARM.SpatialRef.State
                 webSocketManager.Off("robot_command");
                 webSocketManager.Off("error");
                 webSocketManager.Off("server_error");
+            }
+        }
+
+        private void HandleSpeechRecognized(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            switch (CurrentState)
+            {
+                case AppState.ShowingResult:
+                case AppState.Refining:
+                    OnUserFeedback(text);
+                    return;
+
+                case AppState.Processing:
+                case AppState.Executing:
+                    Log($"Speech ignored in state={CurrentState}: {text}", "yellow");
+                    return;
+
+                default:
+                    OnUtteranceReceived(text);
+                    return;
             }
         }
 

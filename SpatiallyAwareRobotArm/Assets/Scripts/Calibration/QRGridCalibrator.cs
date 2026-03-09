@@ -46,6 +46,9 @@ namespace SA_XARM.Calibration
         [SerializeField] private GameObject gridParent;
         [SerializeField] private bool doLog = true;
 
+        [Header("WebSocket Event")]
+        [SerializeField] private string wsSaveGridEvent = "SaveGridConfig";
+
        
 
         private int TotalPoints => Mathf.Max(1, gridWidth) * Mathf.Max(1, gridHeight);
@@ -235,6 +238,19 @@ namespace SA_XARM.Calibration
                     };
 
                     string json = JsonConvert.SerializeObject(recordedPoints, settings);
+
+                    if (WebSocketManager.Instance != null)
+                    {
+                        WebSocketManager.Instance.Send(wsSaveGridEvent, new
+                        {
+                            gridPoints = recordedPoints,
+                            count = recordedPoints.Count,
+                        });
+                    }
+                    else
+                    {
+                        Log("WebSocketManager.Instance is NULL -> cannot send grid", "yellow");
+                    }
                     
                     Log($"💾 Serialization Success. Length: {json.Length}", "white");
 
