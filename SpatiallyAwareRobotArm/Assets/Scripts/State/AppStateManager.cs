@@ -34,10 +34,13 @@ namespace SA_XARM.SpatialRef.State
         public event Action<AppState> OnStateChanged;
         public event Action<string> OnStatusChanged;
         public event Action<SpatialReferenceResult> OnResultUpdated;
+        public event Action<bool, string, bool> OnPendingSpeechChanged;
 
         private string _lastRequestId;
         private string _lastTargetObjectId;
         private SpatialObject _highlightedSpatialObject;
+        private string _pendingRecognizedText;
+        private bool _pendingIsFeedback;
 
         private void OnEnable()
         {
@@ -95,7 +98,7 @@ namespace SA_XARM.SpatialRef.State
             {
                 case AppState.ShowingResult:
                 case AppState.Refining:
-                    OnUserFeedback(text);
+                    QueuePendingSpeech(text, isFeedback: true);
                     return;
 
                 case AppState.Processing:
@@ -104,25 +107,51 @@ namespace SA_XARM.SpatialRef.State
                     return;
 
                 default:
-                    OnUtteranceReceived(text);
+                    QueuePendingSpeech(text, isFeedback: false);
                     return;
             }
         }
 
-        public void OnUtteranceReceived(string text)
+        public bool SendPendingRecognizedSpeech()
         {
-            if (string.IsNullOrWhiteSpace(text)) return;
+            if (string.IsNullOrWhiteSpace(_pendingRecognizedText))
+            {
+                Log("No pending speech to send.", "yellow");
+                return false;
+            }
+
+            bool sent;
+            if (_pendingIsFeedback)
+            {
+                sent = OnUserFeedback(_pendingRecognizedText);
+            }
+            else
+            {
+                sent = OnUtteranceReceived(_pendingRecognizedText);
+            }
+
+            if (sent)
+            {
+                ClearPendingSpeech();
+            }
+
+            return sent;
+        }
+
+        public bool OnUtteranceReceived(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
 
             if (webSocketManager == null || !webSocketManager.IsConnected)
             {
                 SetError("サーバー未接続です");
-                return;
+                return false;
             }
 
             if (spatialContextProvider == null)
             {
                 SetError("SpatialContextProvider が未設定です");
-                return;
+                return false;
             }
 
             var request = spatialContextProvider.BuildRequest(text, language);
@@ -132,7 +161,7 @@ namespace SA_XARM.SpatialRef.State
             {
                 SetError("空間オブジェクトが0件のため送信を中止しました（ObjectRegistry / SpatialObjects 配置を確認）");
                 Log("Request blocked: objects=0", "red");
-                return;
+                return false;
             }
 
             _lastRequestId = request.request_id;
@@ -140,6 +169,7 @@ namespace SA_XARM.SpatialRef.State
             SetState(AppState.Processing, "推論中...");
             webSocketManager.Send("spatial_reference_request", request);
             Log($"Request sent: {request.request_id}, objects={objectCount}", "cyan");
+            return true;
         }
 
         public void OnResultReceived(SpatialReferenceResult result)
@@ -159,12 +189,12 @@ namespace SA_XARM.SpatialRef.State
             Log($"Result received: selected={_lastTargetObjectId}", "green");
         }
 
-        public void OnUserFeedback(string feedbackUtterance, string objectId = null)
+        public bool OnUserFeedback(string feedbackUtterance, string objectId = null)
         {
             if (string.IsNullOrWhiteSpace(feedbackUtterance))
             {
                 SetError("フィードバック発話が空です");
-                return;
+                return false;
             }
 
             if (string.IsNullOrWhiteSpace(objectId))
@@ -175,13 +205,13 @@ namespace SA_XARM.SpatialRef.State
             if (webSocketManager == null || !webSocketManager.IsConnected)
             {
                 SetError("サーバー未接続です");
-                return;
+                return false;
             }
 
             if (spatialContextProvider == null)
             {
                 SetError("SpatialContextProvider が未設定です");
-                return;
+                return false;
             }
 
             var msg = new ConfirmationInterpretationRequest
@@ -201,6 +231,7 @@ namespace SA_XARM.SpatialRef.State
             SetState(AppState.Processing, "フィードバック解釈中...");
             webSocketManager.Send("confirmation_interpretation_request", msg);
             Log($"Feedback sent: utterance={feedbackUtterance}, object={objectId}", "white");
+            return true;
         }
 
         public void OnRobotCommandReceived(RobotCommand cmd)
@@ -272,7 +303,7 @@ namespace SA_XARM.SpatialRef.State
 
         private void SetState(AppState next, string statusMessage)
         {
-            if (next != AppState.ShowingResult)
+            if (next != AppState.ShowingResult && next != AppState.Refining)
             {
                 ClearHighlightedTarget();
             }
@@ -280,6 +311,31 @@ namespace SA_XARM.SpatialRef.State
             CurrentState = next;
             OnStateChanged?.Invoke(CurrentState);
             OnStatusChanged?.Invoke(statusMessage);
+        }
+
+        private void QueuePendingSpeech(string text, bool isFeedback)
+        {
+            _pendingRecognizedText = text;
+            _pendingIsFeedback = isFeedback;
+
+            if (isFeedback)
+            {
+                SetState(AppState.Refining, $"Confirmation送信待ち: {text}");
+            }
+            else
+            {
+                SetState(AppState.Idle, $"初回送信待ち: {text}");
+            }
+
+            OnPendingSpeechChanged?.Invoke(true, _pendingRecognizedText, _pendingIsFeedback);
+            Log($"Pending speech queued ({(isFeedback ? "confirmation" : "initial")}): {text}", "white");
+        }
+
+        private void ClearPendingSpeech()
+        {
+            _pendingRecognizedText = null;
+            _pendingIsFeedback = false;
+            OnPendingSpeechChanged?.Invoke(false, string.Empty, false);
         }
 
         private void HighlightTargetForConfirmation(string objectId)

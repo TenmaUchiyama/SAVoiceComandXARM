@@ -14,10 +14,21 @@ namespace SA_XARM.SpeechRecognizer
         [SerializeField] private GameObject recordingIcon;
         
         public bool isListening { get; private set; } = false;
+        public bool IsListening => isListening;
 
-        public UnityEvent<string> _onSpeechRecognized;
-        public UnityEvent _onStartListening;
-        public UnityEvent _onStopListening;
+        public string LastRecognizedText { get; private set; } = string.Empty;
+
+        public UnityEvent<string> _onSpeechRecognized = new UnityEvent<string>();
+        public UnityEvent _onStartListening = new UnityEvent();
+        public UnityEvent _onStopListening = new UnityEvent();
+
+        public UnityEvent<string> OnSpeechRecognizedEvent => _onSpeechRecognized;
+        public UnityEvent OnStartListeningEvent => _onStartListening;
+        public UnityEvent OnStopListeningEvent => _onStopListening;
+
+        public event Action<string> OnSpeechRecognized;
+        public event Action OnStartedListening;
+        public event Action OnStoppedListening;
 
         private ISpeechRecognizer speechRecognizer;
 
@@ -36,32 +47,25 @@ namespace SA_XARM.SpeechRecognizer
             Debug.LogError("[SpeechRecognitionManager] Voice Error: " + text);
         }
 
-        private void OnSpeechRecognized(string text)
-        {
-            Debug.Log("[SpeechRecognitionManager] Recognized: " + text);
 
-            if (userText != null)
-            {
-                userText.text = text;
-            }
-
-            // 認識完了後はボタンを半透明に戻す
-            SetButtonAppearance(Color.white, 0.5f);
-
-            _onSpeechRecognized?.Invoke(text);
-        }
 
         public void ToggleListening()
         {
             if (isListening)
             {
                 StopListening();
-                recordingIcon.SetActive(false);
+                if (recordingIcon != null)
+                {
+                    recordingIcon.SetActive(false);
+                }
             }
             else
             {
                 StartListening();
-                recordingIcon.SetActive(true);
+                if (recordingIcon != null)
+                {
+                    recordingIcon.SetActive(true);
+                }
             }
         }
 
@@ -90,6 +94,7 @@ namespace SA_XARM.SpeechRecognizer
             SetButtonAppearance(Color.green, 1.0f);
             
             _onStartListening?.Invoke();
+            OnStartedListening?.Invoke();
 
         }
 
@@ -118,6 +123,12 @@ namespace SA_XARM.SpeechRecognizer
             SetButtonAppearance(Color.white, 0.5f);
             
             _onStopListening?.Invoke();
+            OnStoppedListening?.Invoke();
+        }
+
+        public string GetRecognizedText()
+        {
+            return LastRecognizedText;
         }
 
         /// <summary>
