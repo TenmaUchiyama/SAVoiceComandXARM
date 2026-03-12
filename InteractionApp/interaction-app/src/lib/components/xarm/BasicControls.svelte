@@ -20,9 +20,9 @@
 <section class="panel">
   <h3>Basic Controls</h3>
   <div class="btn-group">
-    <button class="btn" disabled={loading === 'Home'} onclick={() => action('Home', api.robotHome)}>
+    <!-- <button class="btn" disabled={loading === 'Home'} onclick={() => action('Home', api.robotHome)}>
       {loading === 'Home' ? '…' : '🏠 Home'}
-    </button>
+    </button> -->
     <button class="btn" disabled={loading === 'Initial'} onclick={() => action('Initial', api.robotInitial)}>
       {loading === 'Initial' ? '…' : '📍 Initial Pos'}
     </button>

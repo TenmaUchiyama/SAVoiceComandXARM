@@ -40,26 +40,15 @@
   }
 
   async function restoreAll() {
-    // Restore both grid and robot to Unity
     try {
       const grids = appState.savedGrids;
       const robots = appState.savedRobots;
 
       if (grids.length > 0) {
-        const gridData = (await api.getGrid(grids[0])) as { gridPoints?: unknown[] };
-        wsUnity.sendLegacy('RestoreGridConfig', {
-          type: 'grid_config',
-          filename: grids[0],
-          gridPoints: gridData.gridPoints ?? gridData,
-        });
+        await api.restoreGrid(grids[0]);
       }
       if (robots.length > 0) {
-        const robotData = (await api.getRobot(robots[0])) as { markerData?: unknown };
-        wsUnity.sendLegacy('RestoreRobotMarkerConfig', {
-          type: 'marker_config',
-          filename: robots[0],
-          markerData: robotData.markerData ?? robotData,
-        });
+        await api.restoreRobot(robots[0]);
       }
       appState.addToast('Restore All complete', 'success');
     } catch (e) {

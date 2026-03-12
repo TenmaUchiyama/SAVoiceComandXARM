@@ -166,4 +166,12 @@ namespace SA_XARM.SpatialRef.Data
         public string code;
         public string message;
     }
+
+    [Serializable]
+    public class ProcessingStatus : BaseMessage
+    {
+        public string request_id;
+        public string stage;   // "stage1" | "stage2" | "done"
+        public string message; // 表示用テキスト
+    }
 }

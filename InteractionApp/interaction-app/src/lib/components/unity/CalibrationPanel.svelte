@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { wsUnity } from '$lib/appState.svelte';
-  import { generateRequestId } from '$lib/ws.svelte';
+  import { appState } from '$lib/appState.svelte';
+  import { api } from '$lib/api.svelte';
 
   const actions = [
     { label: 'Teach', action: 'teach' },
@@ -11,11 +11,12 @@
     { label: 'Status', action: 'status' },
   ] as const;
 
-  function sendCalibration(action: string) {
-    wsUnity.send('pc_debug_calibration_request', {
-      request_id: generateRequestId('calib'),
-      action,
-    });
+  async function sendCalibration(action: string) {
+    try {
+      await api.unityCalib(action);
+    } catch (e) {
+      appState.addToast(`Calibration failed (${action}): ${e}`, 'error');
+    }
   }
 </script>
 
@@ -25,6 +26,11 @@
     {#each actions as { label, action }}
       <button class="btn" onclick={() => sendCalibration(action)}>{label}</button>
     {/each}
+  </div>
+  <h3 class="sub-heading">Grid Visual</h3>
+  <div class="btn-group">
+    <button class="btn btn-show" onclick={() => sendCalibration('grid_show')}>Show Grid</button>
+    <button class="btn btn-hide" onclick={() => sendCalibration('grid_hide')}>Hide Grid</button>
   </div>
 </section>
 
@@ -59,5 +65,16 @@
   .btn:hover {
     background: #334155;
     border-color: #475569;
+  }
+  .sub-heading {
+    margin: 12px 0 8px;
+  }
+  .btn-show:hover {
+    background: #14532d;
+    border-color: #16a34a;
+  }
+  .btn-hide:hover {
+    background: #450a0a;
+    border-color: #dc2626;
   }
 </style>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { wsUnity, appState } from '$lib/appState.svelte';
+  import { appState } from '$lib/appState.svelte';
   import { api } from '$lib/api.svelte';
 
   let {
@@ -29,19 +29,9 @@
   async function restore(filename: string) {
     try {
       if (kind === 'grid') {
-        const data = (await api.getGrid(filename)) as { gridPoints?: unknown[] };
-        wsUnity.sendLegacy('RestoreGridConfig', {
-          type: 'grid_config',
-          filename,
-          gridPoints: data.gridPoints ?? data,
-        });
+        await api.restoreGrid(filename);
       } else {
-        const data = (await api.getRobot(filename)) as { markerData?: unknown };
-        wsUnity.sendLegacy('RestoreRobotMarkerConfig', {
-          type: 'marker_config',
-          filename,
-          markerData: data.markerData ?? data,
-        });
+        await api.restoreRobot(filename);
       }
       appState.addToast(`Restored ${kind}: ${filename}`, 'success');
     } catch (e) {

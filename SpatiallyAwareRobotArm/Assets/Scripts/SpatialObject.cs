@@ -58,7 +58,7 @@ namespace SA_XARM.SpatialRef.Spatial
 				arrowVisual.SetActive(false);
 			}
 
-			SetRendererColor(defaultColor);
+			ApplyConfiguredColorOrDefault();
 		}
 
 		public void Initialize(ObjectData data)
@@ -75,6 +75,23 @@ namespace SA_XARM.SpatialRef.Spatial
 			if (data.position != null)
 			{
 				transform.position = new Vector3(data.position.x, data.position.y, data.position.z);
+			}
+
+			ApplyConfiguredColorOrDefault();
+		}
+
+		public void SetObjectColor(string colorNameOrHex)
+		{
+			objectColor = string.IsNullOrWhiteSpace(colorNameOrHex) ? "unknown" : colorNameOrHex;
+
+			if (TryParseObjectColor(objectColor, out Color parsedColor))
+			{
+				defaultColor = parsedColor;
+			}
+
+			if (!IsHighlighted)
+			{
+				ApplyConfiguredColorOrDefault();
 			}
 		}
 
@@ -234,12 +251,87 @@ namespace SA_XARM.SpatialRef.Spatial
 			};
 		}
 
+
+
+
+		public void SetVisualize(bool visualize)
+		{
+			gridVisual?.SetActive(visualize);
+		}
+
 		private void SetRendererColor(Color color)
 		{
 			if (matRenderer != null)
 			{
 				matRenderer.color = color;
 			}
+		}
+
+		private void ApplyConfiguredColorOrDefault()
+		{
+			if (TryParseObjectColor(objectColor, out Color parsedColor))
+			{
+				defaultColor = parsedColor;
+				SetRendererColor(parsedColor);
+				return;
+			}
+
+			SetRendererColor(defaultColor);
+		}
+
+		private bool TryParseObjectColor(string colorNameOrHex, out Color parsedColor)
+		{
+			parsedColor = default;
+
+			if (string.IsNullOrWhiteSpace(colorNameOrHex))
+			{
+				return false;
+			}
+
+			if (ColorUtility.TryParseHtmlString(colorNameOrHex, out parsedColor))
+			{
+				return true;
+			}
+
+			switch (colorNameOrHex.Trim().ToLowerInvariant())
+			{
+				case "red":
+				case "赤":
+					parsedColor = Color.red;
+					return true;
+				case "green":
+				case "緑":
+					parsedColor = Color.green;
+					return true;
+				case "blue":
+				case "青":
+					parsedColor = Color.blue;
+					return true;
+				case "yellow":
+				case "黄":
+					parsedColor = Color.yellow;
+					return true;
+				case "white":
+				case "白":
+					parsedColor = Color.white;
+					return true;
+				case "black":
+				case "黒":
+					parsedColor = Color.black;
+					return true;
+				case "cyan":
+					parsedColor = Color.cyan;
+					return true;
+				case "magenta":
+					parsedColor = Color.magenta;
+					return true;
+				case "gray":
+				case "grey":
+					parsedColor = Color.gray;
+					return true;
+			}
+
+			return false;
 		}
 	}
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { appState, wsUnity, wsSpatial, wsStatus } from '$lib/appState.svelte';
+  import { appState, wsUnity, wsSpatial, wsStatus, wsRobot } from '$lib/appState.svelte';
   import { apiConfig } from '$lib/api.svelte';
   import TabContainer from '$lib/components/TabContainer.svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -22,6 +22,7 @@
     wsUnity.connect(unityUrl);
     wsSpatial.connect(`${wsBase}/spatial`);
     wsStatus.connect(`${wsBase}/status`);
+    wsRobot.connect(`${wsBase}/robot`);
 
     showSettings = false;
   }
@@ -30,6 +31,7 @@
     wsUnity.close();
     wsSpatial.close();
     wsStatus.close();
+    wsRobot.close();
   }
 </script>
 
@@ -44,6 +46,7 @@
       <StatusBadge connected={wsUnity.connected} label="Unity" />
       <StatusBadge connected={wsSpatial.connected} label="Spatial" />
       <StatusBadge connected={wsStatus.connected} label="Status" />
+      <StatusBadge connected={wsRobot.connected} label="Robot" />
       <button class="gear-btn" onclick={() => (showSettings = !showSettings)}>⚙️</button>
     </div>
   </header>

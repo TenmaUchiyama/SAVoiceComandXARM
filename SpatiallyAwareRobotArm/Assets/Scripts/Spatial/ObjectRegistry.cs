@@ -127,5 +127,31 @@ namespace SA_XARM.SpatialRef.Spatial
             return $"spatial_object_{x}_{y}";
         }
 
+
+
+
+        public void SetVisualAll(bool visible)
+        {
+            Transform root = ResolveSpatialObjectRoot();
+            if (root == null)
+            {
+                Debug.LogWarning("[ObjectRegistry] spatialObjectRoot is not resolved.");
+                return;
+            }
+
+            SpatialObject[] spatialObjects = root.GetComponentsInChildren<SpatialObject>(true);
+            for (int i = 0; i < spatialObjects.Length; i++)
+            {
+                spatialObjects[i]?.SetVisualize(visible);
+            }
+
+            Debug.Log($"[ObjectRegistry] SetVisualAll({visible}) applied to {spatialObjects.Length} objects.");
+        }
+
+        public void UnvisuaizeAll()
+        {
+            SetVisualAll(false);
+        }
+
     }
 }

@@ -187,7 +187,7 @@ export interface CommandResponse {
 
 // ─── Log ───
 export type LogDirection = "TX" | "RX";
-export type LogSource = "unity" | "spatial" | "status" | "http";
+export type LogSource = "unity" | "spatial" | "status" | "http" | "robot";
 
 export interface LogEntry {
   id: number;
@@ -208,3 +208,46 @@ export type SpatialPhase =
   | "showing_result"
   | "awaiting_confirmation"
   | "executing";
+
+// ─── Robot API responses ───
+export interface RobotActionResponse {
+  success: boolean;
+  message: string;
+}
+
+export interface RobotStatusResponse {
+  connected: boolean;
+  mode: "real" | "mock";
+  state?: number | string | null;
+  position?: number[] | null;
+  error_code?: number;
+  grid_cells_loaded?: number;
+  manual_mode?: boolean;
+}
+
+export interface GridCell {
+  key: string;
+  col: number;
+  row: number;
+  pose: number[];
+}
+
+export interface GridCellsResponse {
+  cells: GridCell[];
+  count: number;
+}
+
+// ─── Debug log (server-side) ───
+export interface DebugLogEntry {
+  ts: string;
+  level: "info" | "warn" | "error" | "step";
+  source: string;
+  message: string;
+  detail?: unknown;
+}
+
+export interface DebugLogsResponse {
+  logs: DebugLogEntry[];
+}
+
+export type JogAxis = "x" | "-x" | "y" | "-y" | "z" | "-z";

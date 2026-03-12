@@ -11,12 +11,15 @@ EditorBuildSettings:
   - enabled: 0
     path: "Assets/Scenes/\u8A66\u3059\u3084\u3064/WebsocketTest.unity"
     guid: fb5dca5a8f5fd00458dfb62bc1ce3215
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/GridCalibaration.unity
     guid: ce4276a1843516444a87f85b9c2509f5
   - enabled: 0
     path: "Assets/Scenes/\u8A66\u3059\u3084\u3064/HololensDebug.unity"
     guid: 44463b5a62d119245b7a9b7debc52643
+  - enabled: 1
+    path: Assets/Scenes/MainScene.unity
+    guid: 37134e2ab93c99b43a852fa85442ddc1
   m_configObjects:
     com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: a38990e2bff18b747a4135e57c933094, type: 2}
     com.unity.xr.management.loader_settings: {fileID: 11400000, guid: c3056a9dec0bbe14da67131a68fc00b6, type: 2}

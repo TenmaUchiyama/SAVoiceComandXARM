@@ -316,13 +316,13 @@ def _build_robot_command_message(
     }
 
 
-async def _route_spatial_message(message: dict) -> Any:
+async def _route_spatial_message(message: dict, send_status=None) -> Any:
     try:
         msg_type = message.get("type")
         print(f"【Server】_route_spatial_message: type={msg_type}, request_id={message.get('request_id')}")
         if msg_type == "spatial_reference_request":
             req = SpatialReferenceRequest(**message)
-            return await _process_spatial_reference_request(req)
+            return await _process_spatial_reference_request(req, send_status=send_status)
         if msg_type == "refinement_request":
             req = RefinementRequest(**message)
             return await _process_refinement_request(req)
@@ -370,12 +370,31 @@ async def _route_spatial_message(message: dict) -> Any:
         }
 
 
-async def _process_spatial_reference_request(request_data: SpatialReferenceRequest) -> dict:
+def _build_processing_status(request_id: str, stage: str, message: str) -> dict:
+    return {
+        "type": "processing_status",
+        "request_id": request_id,
+        "stage": stage,
+        "message": message,
+    }
+
+
+async def _process_spatial_reference_request(request_data: SpatialReferenceRequest, send_status=None) -> dict:
+    async def notify(stage: str, message: str):
+        if send_status is None:
+            return
+        try:
+            await send_status(_build_processing_status(request_data.request_id, stage, message))
+        except Exception as e:
+            print(f"【Server】send_status failed: {e}")
+
     _prune_expired_sessions()
     _validate_coordinates(request_data)
+
+    await notify("stage1", "参照フレームを分析中...")
     frame_decision = await _run_stage1(request_data.utterance.text)
     reference_frame = frame_decision.reference_frame
-    
+
     print(f"【STAGE1】参照フレーム: {reference_frame} (request_id={request_data.request_id})")
     features = compute_spatial_features(
         objects=request_data.objects,
@@ -384,6 +403,7 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
         robot_pose=request_data.robot_pose,
     )
 
+    await notify("stage2", "オブジェクトを選択中...")
     try:
         print(f"【STAGE2】Running Stage 2 ランキング (request_id={request_data.request_id})")
 
@@ -395,6 +415,7 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
     except Exception:
         ranked_candidates = apply_fallback_ranking(request_data.utterance.text, features)
 
+    await notify("done", "結果を準備中...")
     _store_session(SessionContext(
         request_id=request_data.request_id,
         utterance=request_data.utterance.text,
@@ -971,7 +992,15 @@ async def spatial_ws_endpoint(websocket: WebSocket):
                     _debug_ws("server", "/spatial", message, note="filled original_request_id from latest session")
 
             _debug_ws("unity->server", "/spatial", message)
-            response = await _route_spatial_message(message)
+
+            async def send_status(status_dict: dict):
+                payload = json.dumps(status_dict, ensure_ascii=False)
+                if needs_packet:
+                    await websocket.send_text(json.dumps(_as_unity_packet(status_dict), ensure_ascii=False))
+                else:
+                    await websocket.send_text(payload)
+
+            response = await _route_spatial_message(message, send_status=send_status)
 
             LAST_SPATIAL_DISCONNECT = None
             response_list = response if isinstance(response, list) else [response]

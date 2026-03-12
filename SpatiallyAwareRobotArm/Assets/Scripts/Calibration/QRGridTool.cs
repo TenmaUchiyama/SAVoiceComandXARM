@@ -764,9 +764,15 @@ namespace SA_XARM.Calibration
                     go.name = $"RestoredPoint_{p.id}_({p.gridX},{p.gridY})";
 
                     var gridComp = go.GetComponent<global::SA_XARM.SpatialRef.Spatial.SpatialObject>();
-                    if (gridComp != null) gridComp.SetGridPosition(p.gridX, p.gridY);
-
-                    ApplyColorToRenderer(go, p.color);
+                    if (gridComp != null)
+                    {
+                        gridComp.SetGridPosition(p.gridX, p.gridY);
+                        gridComp.SetObjectColor(p.color);
+                    }
+                    else
+                    {
+                        ApplyColorToRenderer(go, p.color);
+                    }
 
                     spawned.Add(go);
                 }

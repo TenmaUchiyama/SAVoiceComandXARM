@@ -69,6 +69,7 @@ namespace SA_XARM.SpatialRef.State
                 webSocketManager.On<RobotCommand>("robot_command", OnRobotCommandReceived);
                 webSocketManager.On<ServerErrorMessage>("error", OnServerErrorReceived);
                 webSocketManager.On<ServerErrorMessage>("server_error", OnServerErrorReceived);
+                webSocketManager.On<ProcessingStatus>("processing_status", OnProcessingStatusReceived);
             }
         }
 
@@ -87,6 +88,7 @@ namespace SA_XARM.SpatialRef.State
                 webSocketManager.Off("robot_command");
                 webSocketManager.Off("error");
                 webSocketManager.Off("server_error");
+                webSocketManager.Off("processing_status");
             }
         }
 
@@ -183,6 +185,20 @@ namespace SA_XARM.SpatialRef.State
             _lastTargetObjectId = string.IsNullOrWhiteSpace(result.top_candidate_id)
                 ? result.selected_object_id
                 : result.top_candidate_id;
+
+            // [Agent] LLMの選択理由をログ出力 + UI表示
+            string agentReason = null;
+            if (result.candidates != null && result.candidates.Count > 0)
+                agentReason = result.candidates[0].reasoning ?? result.candidates[0].reason;
+            if (string.IsNullOrWhiteSpace(agentReason))
+                agentReason = result.reasoning;
+            Debug.Log($"[Agent] 選択: {_lastTargetObjectId} | 理由: {agentReason}");
+            UserFeedbackDisplay.Instance?.ShowAgentMessage($"「{_lastTargetObjectId}」を選択\n理由: {agentReason}");
+
+            // ユーザーへの確認案内
+            Debug.Log($"[Agent] 「{_lastTargetObjectId}」を選択しました。確認してください。");
+            UserFeedbackDisplay.Instance?.ShowConfirmPrompt($"「{_lastTargetObjectId}」でよいですか？\n「はい」で実行 / 「違う」で再選択");
+
             SetState(AppState.ShowingResult, $"候補: {_lastTargetObjectId}");
             HighlightTargetForConfirmation(_lastTargetObjectId);
             OnResultUpdated?.Invoke(result);
@@ -247,11 +263,12 @@ namespace SA_XARM.SpatialRef.State
 
             if (completed)
             {
+                UserFeedbackDisplay.Instance?.ShowStatus("実行完了しました");
                 SetState(AppState.Idle, "完了");
             }
             else
             {
-                SetState(AppState.Executing, $"ロボット状態: {cmd.status}");
+                SetState(AppState.Executing, "ロボットが動いています...");
             }
 
             string actionName = string.IsNullOrWhiteSpace(cmd.action) ? cmd.command : cmd.action;
@@ -262,6 +279,13 @@ namespace SA_XARM.SpatialRef.State
         public void CancelToIdle()
         {
             SetState(AppState.Idle, "キャンセル");
+        }
+
+        private void OnProcessingStatusReceived(ProcessingStatus status)
+        {
+            if (status == null) return;
+            Debug.Log($"[ProcessingStatus] stage={status.stage} | {status.message}");
+            UserFeedbackDisplay.Instance?.ShowStatus(status.message);
         }
 
         private void OnServerErrorReceived(ServerErrorMessage error)
@@ -311,6 +335,30 @@ namespace SA_XARM.SpatialRef.State
             CurrentState = next;
             OnStateChanged?.Invoke(CurrentState);
             OnStatusChanged?.Invoke(statusMessage);
+
+            // UserFeedbackDisplay をステートに応じて更新
+            // ShowingResult は OnResultReceived 側で上書きするためここでは基本メッセージのみ
+            switch (next)
+            {
+                case AppState.Idle:
+                    UserFeedbackDisplay.Instance?.Clear();
+                    break;
+                case AppState.Listening:
+                    UserFeedbackDisplay.Instance?.ShowStatus("聞いています...");
+                    break;
+                case AppState.Processing:
+                    UserFeedbackDisplay.Instance?.ShowStatus(statusMessage);
+                    break;
+                case AppState.Executing:
+                    UserFeedbackDisplay.Instance?.ShowStatus(statusMessage);
+                    break;
+                case AppState.Refining:
+                    UserFeedbackDisplay.Instance?.ShowStatus(statusMessage);
+                    break;
+                case AppState.Error:
+                    UserFeedbackDisplay.Instance?.ShowError(statusMessage);
+                    break;
+            }
         }
 
         private void QueuePendingSpeech(string text, bool isFeedback)

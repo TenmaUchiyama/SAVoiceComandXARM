@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using SA_XARM.Calibration;
+using SA_XARM.SpatialRef.Spatial;
 
 namespace SA_XARM.Network.Websocket
 {
@@ -72,7 +73,11 @@ namespace SA_XARM.Network.Websocket
         [Header("Settings")]
         [SerializeField] private bool autoSubscribeOnEnable = true;
 
-        private WebSocketManager _webSocketManager;
+        /// <summary>
+        /// デバッグ系イベントは DebugWebSocketClient (port 8765) を使用する。
+        /// WebSocketManager (port 8080/spatial) とは独立した接続。
+        /// </summary>
+        private DebugWebSocketClient _debugClient;
 
         private void Start()
         {
@@ -89,27 +94,27 @@ namespace SA_XARM.Network.Websocket
 
         public void Subscribe()
         {
-            _webSocketManager = ResolveManager();
-            if (_webSocketManager == null)
+            _debugClient = ResolveClient();
+            if (_debugClient == null)
             {
-                SafeLogError("[PCDebuggerWS] WebSocketManager is not available.");
+                SafeLogError("[PCDebuggerWS] DebugWebSocketClient is not available.");
                 return;
             }
 
-            _webSocketManager.On<PcDebugPersistentListRequest>(listRequestEventId, OnListRequestReceived);
-            _webSocketManager.On<PcDebugReadJsonRequest>(readJsonRequestEventId, OnReadJsonRequestReceived);
-            _webSocketManager.On<PcDebugCalibrationRequest>(calibrationRequestEventId, OnCalibrationRequestReceived);
-            SafeLog("[PCDebuggerWS] Subscribed request handlers.", "cyan");
+            _debugClient.On<PcDebugPersistentListRequest>(listRequestEventId, OnListRequestReceived);
+            _debugClient.On<PcDebugReadJsonRequest>(readJsonRequestEventId, OnReadJsonRequestReceived);
+            _debugClient.On<PcDebugCalibrationRequest>(calibrationRequestEventId, OnCalibrationRequestReceived);
+            SafeLog("[PCDebuggerWS] Subscribed request handlers (via DebugWebSocketClient).", "cyan");
         }
 
         public void Unsubscribe()
         {
-            var manager = ResolveManager();
-            if (manager == null) return;
+            var client = ResolveClient();
+            if (client == null) return;
 
-            manager.Off(listRequestEventId);
-            manager.Off(readJsonRequestEventId);
-            manager.Off(calibrationRequestEventId);
+            client.Off(listRequestEventId);
+            client.Off(readJsonRequestEventId);
+            client.Off(calibrationRequestEventId);
         }
 
         private void OnCalibrationRequestReceived(PcDebugCalibrationRequest request)
@@ -237,6 +242,36 @@ namespace SA_XARM.Network.Websocket
                         response.message = "Cleared QRGridTool state.";
                         break;
 
+                    case "grid_show":
+                    case "show_grid":
+                    {
+                        ObjectRegistry registry = FindObjectOfType<ObjectRegistry>(true);
+                        if (registry == null)
+                        {
+                            response.error = "ObjectRegistry not found in scene.";
+                            break;
+                        }
+                        registry.SetVisualAll(true);
+                        response.success = true;
+                        response.message = "Grid visual shown.";
+                        break;
+                    }
+
+                    case "grid_hide":
+                    case "hide_grid":
+                    {
+                        ObjectRegistry registry = FindObjectOfType<ObjectRegistry>(true);
+                        if (registry == null)
+                        {
+                            response.error = "ObjectRegistry not found in scene.";
+                            break;
+                        }
+                        registry.SetVisualAll(false);
+                        response.success = true;
+                        response.message = "Grid visual hidden.";
+                        break;
+                    }
+
                     case "status":
                         response.success = true;
                         response.message = "Status collected.";
@@ -356,21 +391,21 @@ namespace SA_XARM.Network.Websocket
 
         private void Send<T>(string eventId, T payload)
         {
-            var manager = ResolveManager();
-            if (manager == null || !manager.IsConnected)
+            var client = ResolveClient();
+            if (client == null || !client.IsConnected)
             {
-                SafeLogError($"[PCDebuggerWS] Cannot send '{eventId}' because WebSocket is not connected.");
+                SafeLogError($"[PCDebuggerWS] Cannot send '{eventId}' because DebugWebSocket is not connected.");
                 return;
             }
 
-            manager.Send(eventId, payload);
+            client.Send(eventId, payload);
         }
 
-        private WebSocketManager ResolveManager()
+        private DebugWebSocketClient ResolveClient()
         {
-            if (_webSocketManager != null) return _webSocketManager;
-            _webSocketManager = WebSocketManager.Instance;
-            return _webSocketManager;
+            if (_debugClient != null) return _debugClient;
+            _debugClient = DebugWebSocketClient.Instance;
+            return _debugClient;
         }
 
         private static string ToRelativePath(string basePath, string targetPath)

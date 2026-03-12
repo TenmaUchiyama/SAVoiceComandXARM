@@ -5,6 +5,8 @@ import type {
   StatusMessage,
   GridConfig,
   RobotMarkerConfig,
+  DebugLogEntry,
+  RobotStatusResponse,
 } from "./types";
 import { WsManager } from "./ws.svelte";
 
@@ -47,6 +49,13 @@ let _nextToastId = 0;
 let _savedGrids = $state<string[]>([]);
 let _savedRobots = $state<string[]>([]);
 
+// Debug logs (from server WebSocket)
+const MAX_DEBUG_LOGS = 300;
+let _debugLogs = $state<DebugLogEntry[]>([]);
+
+// Robot status (from server WebSocket)
+let _robotStatus = $state<RobotStatusResponse | null>(null);
+
 export const appState = {
   // Tab
   get activeTab() {
@@ -79,6 +88,14 @@ export const appState = {
   },
   set robotEnabled(v: boolean) {
     _robotEnabled = v;
+  },
+
+  // Robot status (detailed)
+  get robotStatus() {
+    return _robotStatus;
+  },
+  set robotStatus(v: RobotStatusResponse | null) {
+    _robotStatus = v;
   },
 
   // Spatial
@@ -137,6 +154,17 @@ export const appState = {
   set savedRobots(v: string[]) {
     _savedRobots = v;
   },
+
+  // Debug logs
+  get debugLogs() {
+    return _debugLogs;
+  },
+  pushDebugLog(entry: DebugLogEntry) {
+    _debugLogs = [entry, ..._debugLogs].slice(0, MAX_DEBUG_LOGS);
+  },
+  clearDebugLogs() {
+    _debugLogs = [];
+  },
 };
 
 // ─── WebSocket instances ───
@@ -158,8 +186,34 @@ export const wsStatus = new WsManager({
   autoReconnect: true,
 });
 
+export const wsRobot = new WsManager({
+  url: `${_serverBaseUrl.replace("http", "ws")}/robot`,
+  name: "robot",
+  autoReconnect: true,
+});
+
 // ─── Status listener ───
 wsStatus.on("status", (data) => {
   const msg = data as StatusMessage;
   appState.robotEnabled = msg.robot_enabled;
+});
+
+// ─── Status update (robot status via WS) ───
+wsStatus.on("status_update", (data) => {
+  const d = data as Record<string, unknown>;
+  if (typeof d.connected === "boolean") {
+    appState.robotStatus = d as unknown as RobotStatusResponse;
+  }
+});
+
+// ─── Debug log from server ───
+wsStatus.on("debug_log", (data) => {
+  const d = data as Record<string, unknown>;
+  appState.pushDebugLog({
+    ts: (d.ts as string) ?? new Date().toISOString(),
+    level: (d.level as DebugLogEntry["level"]) ?? "info",
+    source: (d.source as string) ?? "server",
+    message: (d.message as string) ?? "",
+    detail: d.detail,
+  });
 });
