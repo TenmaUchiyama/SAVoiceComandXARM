@@ -1,117 +1,24 @@
-
-
-
 using System.Collections.Generic;
 using UnityEngine;
-using MixedReality.Toolkit;
-using MixedReality.Toolkit.Subsystems;
 
-
-namespace SA_XARM.WakeWord{
-public class WakeWordManager : MonoBehaviour
+namespace SA_XARM.WakeWord
 {
-    [Header("Wake Word Settings")]
-    [SerializeField]
-    private List<WakeWordEntry> wakeWords = new();
-
-    private KeywordRecognitionSubsystem keywordSubsystem;
-
-    void OnEnable()
+    /// <summary>
+    /// WakeWordManager is disabled to avoid conflict with DictationRecognizer.
+    /// </summary>
+    public class WakeWordManager : MonoBehaviour
     {
-        Debug.Log("===== [WakeWordManager] OnEnable =====");
-
-        keywordSubsystem =
-            XRSubsystemHelpers.GetFirstRunningSubsystem<KeywordRecognitionSubsystem>();
-
-        if (keywordSubsystem == null)
+        // This component is intentionally left empty to remove dependency on KeywordRecognitionSubsystem.
+        public void RegisterRuntime(string keyword, System.Action action)
         {
-            Debug.LogError("[WakeWordManager] ❌ KeywordRecognitionSubsystem NOT FOUND");
-            DumpAllKeywordSubsystems();
-            return;
-        }
-
-        Debug.Log("[WakeWordManager] ✅ KeywordRecognitionSubsystem FOUND");
-
-        RegisterAllWakeWords();
-    }
-
-    void OnDisable()
-    {
-        Debug.Log("===== [WakeWordManager] OnDisable =====");
-        UnregisterAll();
-    }
-
-    // ================================
-    // Inspector 登録
-    // ================================
-    private void RegisterAllWakeWords()
-    {
-        foreach (var entry in wakeWords)
-        {
-            if (string.IsNullOrWhiteSpace(entry.keyword))
-            {
-                Debug.LogWarning("[WakeWordManager] Empty keyword skipped");
-                continue;
-            }
-
-            var keywordEvent =
-                keywordSubsystem.CreateOrGetEventForKeyword(entry.keyword);
-
-            if (keywordEvent == null)
-            {
-                Debug.LogError($"[WakeWordManager] Failed to create event for {entry.keyword}");
-                continue;
-            }
-
-            keywordEvent.AddListener(() =>
-            {
-                Debug.Log($"🔥 [WakeWord] \"{entry.keyword}\" recognized");
-                entry.onRecognized?.Invoke();
-            });
-
-            Debug.Log($"[WakeWordManager] Registered WakeWord: \"{entry.keyword}\"");
+            // Do nothing
         }
     }
 
-    private void UnregisterAll()
+    [System.Serializable]
+    public class WakeWordEntry
     {
-        foreach (var entry in wakeWords)
-        {
-            entry.onRecognized?.RemoveAllListeners();
-        }
+        public string keyword;
+        public UnityEngine.Events.UnityEvent onRecognized;
     }
-
-    // ================================
-    // コードからの追加（Inspector + Code 両立）
-    // ================================
-    public void RegisterRuntime(string keyword, System.Action action)
-    {
-        var unityEvent = new UnityEngine.Events.UnityEvent();
-        unityEvent.AddListener(() => action());
-
-        wakeWords.Add(new WakeWordEntry
-        {
-            keyword = keyword,
-            onRecognized = unityEvent
-        });
-
-        // すでに Subsystem が動いているなら即登録
-        if (keywordSubsystem != null)
-        {
-            var evt = keywordSubsystem.CreateOrGetEventForKeyword(keyword);
-            evt.AddListener(() => unityEvent.Invoke());
-        }
-    }
-
-    private void DumpAllKeywordSubsystems()
-    {
-        var subsystems = new List<KeywordRecognitionSubsystem>();
-        SubsystemManager.GetSubsystems(subsystems);
-
-        foreach (var s in subsystems)
-        {
-            Debug.Log($"Subsystem: running={s.running}, type={s.GetType().Name}");
-        }
-    }
-}
 }

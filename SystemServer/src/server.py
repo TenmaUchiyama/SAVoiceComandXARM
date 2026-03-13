@@ -7,6 +7,7 @@ dotenv.load_dotenv("../.env")  # .env ファイルから環境変数を読み込
 import asyncio
 import json
 import os
+import re
 import time
 import traceback
 from typing import Dict, Optional, List, Any, Tuple
@@ -569,14 +570,24 @@ async def _process_confirmation_request(request_data: ConfirmationRequest) -> Li
     final_message = "robot action completed"
 
     if robot is not None and request_data.action == "pick":
-        try:
-            ok, msg = robot.pick_at(target.position.x, target.position.y)
-            if not ok:
+        # Parse grid indices from object ID e.g. "RestoredPoint_13_(1,3)" -> col=1, row=3
+        grid_match = re.search(r'\((\d+),(\d+)\)', target.id)
+        if grid_match:
+            grid_col = int(grid_match.group(1))
+            grid_row = int(grid_match.group(2))
+            print(f"[pick] target.id={target.id!r} → grid=({grid_col},{grid_row})")
+            try:
+                ok, msg = robot.pick_at(grid_col, grid_row)
+                if not ok:
+                    final_status = "failed"
+                    final_message = msg
+            except Exception as exc:
                 final_status = "failed"
-                final_message = msg
-        except Exception as exc:
+                final_message = str(exc)
+        else:
+            print(f"[pick] Cannot parse grid indices from id={target.id!r}")
             final_status = "failed"
-            final_message = str(exc)
+            final_message = f"Cannot parse grid indices from object id: {target.id}"
     elif robot is None and request_data.action == "pick":
         final_status = "failed"
         final_message = "robot is not connected"

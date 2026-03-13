@@ -26,16 +26,16 @@ class TableFrameModel(BaseModel):
 
 class UtteranceModel(BaseModel):
     text: str
-    language: str = "ja"
+    language: str = "en"
 
     @root_validator(pre=True)
     def normalize_input(cls, values: Any) -> Any:
         if isinstance(values, str):
-            return {"text": values, "language": "ja"}
+            return {"text": values, "language": "en"}
         if not isinstance(values, dict):
             return values
 
-        language = values.get("language") or values.get("lang") or values.get("locale") or "ja"
+        language = values.get("language") or values.get("lang") or values.get("locale") or "en"
         text = values.get("text")
         if text is None:
             text = values.get("utterance")
@@ -53,9 +53,9 @@ class UtteranceModel(BaseModel):
     @validator("language", pre=True, always=True)
     def normalize_language(cls, value: Any) -> str:
         if value is None:
-            return "ja"
+            return "en"
         language = str(value).strip()
-        return language or "ja"
+        return language or "en"
 
 
 class UserPoseModel(BaseModel):
@@ -99,7 +99,7 @@ class SpatialReferenceRequest(BaseModel):
         if legacy_text is not None:
             values["utterance"] = {
                 "text": legacy_text,
-                "language": values.get("language", "ja"),
+                "language": values.get("language", "en"),
             }
         return values
 
@@ -121,7 +121,7 @@ class RefinementRequest(BaseModel):
         if legacy_text is not None:
             values["utterance"] = {
                 "text": legacy_text,
-                "language": values.get("language", "ja"),
+                "language": values.get("language", "en"),
             }
         return values
 
@@ -154,7 +154,7 @@ class ConfirmationInterpretationRequest(BaseModel):
         if legacy_text is not None:
             values["utterance"] = {
                 "text": legacy_text,
-                "language": values.get("language", "ja"),
+                "language": values.get("language", "en"),
             }
         return values
 
@@ -175,11 +175,11 @@ class SessionContext:
 
 
 KEYWORD_MAP = {
-    "right": ["右", "みぎ", "右側"],
-    "left": ["左", "ひだり", "左側"],
-    "front": ["手前", "前", "近い", "手元"],
-    "back": ["奥", "後ろ", "遠い"],
-    "closest": ["一番近", "最も近", "nearest"],
+    "right": ["右", "みぎ", "右側", "right"],
+    "left": ["左", "ひだり", "左側", "left"],
+    "front": ["手前", "前", "近い", "手元", "front", "near"],
+    "back": ["奥", "後ろ", "遠い", "back", "far"],
+    "closest": ["一番近", "最も近", "nearest", "closest"],
 }
 
 

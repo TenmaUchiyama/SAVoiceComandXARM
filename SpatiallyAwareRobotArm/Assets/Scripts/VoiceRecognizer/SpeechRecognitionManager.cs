@@ -34,13 +34,22 @@ namespace SA_XARM.SpeechRecognizer
 
         void Awake()
         {
-            speechRecognizer = SpeechRecognizerFactory.Create();
-            speechRecognizer.OnRecognized += HandleRecognized;
-            speechRecognizer.OnError += OnVoiceError;
-            speechRecognizer.OnCompleted += OnRecognizerCompleted;
+            try
+            {
+                SpatialDebugLog.Instance?.Log("[SRM] Awake start");
+                speechRecognizer = SpeechRecognizerFactory.Create();
+                SpatialDebugLog.Instance?.Log("[SRM] Factory created: " + SpeechRecognizerFactory.selectedRecognizer);
 
-            SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] Selected Recognizer: "
-                + SpeechRecognizerFactory.selectedRecognizer);
+                speechRecognizer.OnRecognized += HandleRecognized;
+                speechRecognizer.OnError += OnVoiceError;
+                speechRecognizer.OnCompleted += OnRecognizerCompleted;
+                SpatialDebugLog.Instance?.Log("[SRM] Event handlers registered OK");
+            }
+            catch (Exception ex)
+            {
+                SpatialDebugLog.Instance?.Log($"[SRM] Awake EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                SpatialDebugLog.Instance?.Log($"[SRM] StackTrace: {ex.StackTrace}");
+            }
         }
 
         private void HandleRecognized(string text)
@@ -69,10 +78,48 @@ namespace SA_XARM.SpeechRecognizer
         private IEnumerator RestartListeningCoroutine()
         {
             isListening = false;
-            yield return null; // 1フレーム待つ
-            SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] Restarting DictationRecognizer...");
-            speechRecognizer.StartListening();
+            yield return new WaitForSeconds(0.5f);
+            SpatialDebugLog.Instance?.Log("[SRM] Restarting: starting StartListeningCoroutine...");
+            yield return StartCoroutine(StartListeningCoroutine());
+        }
+
+        private IEnumerator StartListeningCoroutine()
+        {
+            // PhraseRecognitionSystemが動いている場合は停止を待つ
+            if (UnityEngine.Windows.Speech.PhraseRecognitionSystem.Status != UnityEngine.Windows.Speech.SpeechSystemStatus.Stopped)
+            {
+                SpatialDebugLog.Instance?.Log($"[SRM] PhraseRecognitionSystem is {UnityEngine.Windows.Speech.PhraseRecognitionSystem.Status}, shutting down...");
+                UnityEngine.Windows.Speech.PhraseRecognitionSystem.Shutdown();
+
+                float waited = 0f;
+                while (UnityEngine.Windows.Speech.PhraseRecognitionSystem.Status != UnityEngine.Windows.Speech.SpeechSystemStatus.Stopped)
+                {
+                    waited += Time.deltaTime;
+                    if (waited > 3f)
+                    {
+                        SpatialDebugLog.Instance?.Log("[SRM] PhraseRecognitionSystem did not stop in 3s, giving up wait");
+                        break;
+                    }
+                    yield return null;
+                }
+                SpatialDebugLog.Instance?.Log($"[SRM] PhraseRecognitionSystem stopped. Waited {waited:F2}s");
+            }
+
+            try
+            {
+                speechRecognizer.StartListening();
+                SpatialDebugLog.Instance?.Log("[SRM] speechRecognizer.StartListening() returned OK");
+            }
+            catch (Exception ex)
+            {
+                SpatialDebugLog.Instance?.Log($"[SRM] StartListening EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                yield break;
+            }
+
             isListening = true;
+            SetButtonAppearance(Color.green, 1.0f);
+            _onStartListening?.Invoke();
+            OnStartedListening?.Invoke();
         }
 
 
@@ -106,22 +153,12 @@ namespace SA_XARM.SpeechRecognizer
         {
             if (isListening)
             {
-                SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] Already listening");
+                SpatialDebugLog.Instance?.Log("[SRM] Already listening");
                 return;
             }
 
-            SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] StartListening");
-
-            speechRecognizer.StartListening();
-  
-            isListening = true;
-            
-            // ボタンを完全に不透明の緑色に変更
-            SetButtonAppearance(Color.green, 1.0f);
-            
-            _onStartListening?.Invoke();
-            OnStartedListening?.Invoke();
-
+            SpatialDebugLog.Instance?.Log($"[SRM] StartListening. Recognizer type: {speechRecognizer?.GetType().Name ?? "NULL"}");
+            StartCoroutine(StartListeningCoroutine());
         }
 
         public void StopListening()

@@ -26,11 +26,11 @@ namespace SA_XARM.SpatialRef.State
         [SerializeField] private WebSocketManager webSocketManager;
 
         [Header("Settings")]
-        [SerializeField] private string language = "ja";
+        [SerializeField] private string language = "en";
         [SerializeField] private bool autoSubscribeOnEnable = true;
 
         public string Language => language;
-        private bool IsJapanese => language == "ja";
+        private bool IsJapanese = false;
 
         public AppState CurrentState { get; private set; } = AppState.Idle;
 

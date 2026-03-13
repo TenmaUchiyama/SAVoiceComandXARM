@@ -57,15 +57,15 @@
       const res = await api.robotCalibRecordGrid(selectedCol, selectedRow);
       lastMsg = res.message ?? '';
       if (res.success) {
-        appState.addToast(`記録完了: (${selectedCol},${selectedRow})`, 'success');
+        appState.addToast(`Recorded: (${selectedCol},${selectedRow})`, 'success');
         await loadStatus();
-        // 次のセルへ自動進める
+        // Auto advance to next cell
         advanceCell();
       } else {
-        appState.addToast(`記録失敗: ${res.message}`, 'error');
+        appState.addToast(`Record failed: ${res.message}`, 'error');
       }
     } catch (e: any) {
-      appState.addToast(`エラー: ${e.message}`, 'error');
+      appState.addToast(`Error: ${e.message}`, 'error');
     } finally {
       busy = false;
     }
@@ -79,19 +79,19 @@
       const res = await api.robotCalibRecordPlace(placeKey.trim());
       lastMsg = res.message ?? '';
       if (res.success) {
-        appState.addToast(`Place記録完了: "${placeKey}"`, 'success');
+        appState.addToast(`Place recorded: "${placeKey}"`, 'success');
         await loadStatus();
       } else {
-        appState.addToast(`記録失敗: ${res.message}`, 'error');
+        appState.addToast(`Record failed: ${res.message}`, 'error');
       }
     } catch (e: any) {
-      appState.addToast(`エラー: ${e.message}`, 'error');
+      appState.addToast(`Error: ${e.message}`, 'error');
     } finally {
       busy = false;
     }
   }
 
-  // 記録後に次のセルへ自動移動 (行優先: 0,0→1,0→...→3,0→0,1→...)
+  // Auto advance to next cell after recording (row-first: 0,0→1,0→...→3,0→0,1→...)
   function advanceCell() {
     let nextCol = selectedCol + 1;
     let nextRow = selectedRow;
@@ -125,7 +125,7 @@
 
   <!-- Current Position -->
   <div class="pos-bar">
-    <span class="pos-label">現在位置</span>
+    <span class="pos-label">Current Position</span>
     {#if pos}
       <span class="pos-val">
         X:{pos[0]?.toFixed(1)}
@@ -142,7 +142,7 @@
     <div class="progress-bar-wrap">
       <div class="progress-bar" style="width: {(recordedCount / totalCells) * 100}%"></div>
     </div>
-    <p class="progress-label">{recordedCount} / {totalCells} 記録済み</p>
+    <p class="progress-label">{recordedCount} / {totalCells} recorded</p>
 
     <div class="grid-map">
       {#each Array(ROWS) as _, row}
@@ -166,7 +166,7 @@
     </div>
 
     <div class="target-row">
-      <span class="target-label">ターゲット:</span>
+      <span class="target-label">Target:</span>
       <span class="target-val">({selectedCol}, {selectedRow})</span>
     </div>
 
@@ -175,14 +175,14 @@
       disabled={busy || !appState.robotStatus?.connected}
       onclick={recordGrid}
     >
-      {busy ? '記録中…' : `⏺ Record (${selectedCol},${selectedRow})`}
+      {busy ? 'Recording…' : `⏺ Record (${selectedCol},${selectedRow})`}
     </button>
 
   <!-- Place Mode -->
   {:else}
     <div class="place-keys">
       {#if recordedPlaceKeys.length > 0}
-        <span class="pos-label">記録済み:</span>
+        <span class="pos-label">Recorded:</span>
         {#each recordedPlaceKeys as k}
           <button
             class="key-chip"
@@ -191,7 +191,7 @@
           >{k}</button>
         {/each}
       {:else}
-        <span class="pos-none">まだ記録なし</span>
+        <span class="pos-none">No recordings yet</span>
       {/if}
     </div>
 
@@ -211,7 +211,7 @@
       disabled={busy || !appState.robotStatus?.connected || !placeKey.trim()}
       onclick={recordPlace}
     >
-      {busy ? '記録中…' : `⏺ Record "${placeKey}"`}
+      {busy ? 'Recording…' : `⏺ Record "${placeKey}"`}
     </button>
   {/if}
 

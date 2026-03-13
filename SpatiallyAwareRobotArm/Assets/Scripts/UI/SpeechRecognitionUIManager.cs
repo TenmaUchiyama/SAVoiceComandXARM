@@ -11,7 +11,7 @@ using UnityEngine;
 /// <summary>
 /// 音声認識関連の UI を管理する。
 /// AppStateManager のイベントを購読し、状態に応じて Dialog / 録音アイコン / 送信ボタンを切り替える。
-/// SpeechRecognitionManager と WakeWordManager で認識を行い、
+/// SpeechRecognitionManager で認識を行い、
 /// AppStateManager 経由で WebSocket サーバーへリクエストを送信する。
 /// </summary>
 public class SpeechRecognitionUIManager : MonoBehaviour

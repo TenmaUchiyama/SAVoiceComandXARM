@@ -43,7 +43,7 @@ namespace SA_XARM.Calibration
 
         private void Start()
         {
-            SpatialDebugLog.Instance.Log("[GridObjectRestorer] Initializing...", doLog);
+            SpatialDebugLog.Instance?.Log("[GridObjectRestorer] Initializing...", doLog);
 
             // 1. JSON読み込み
             if (!LoadJsonData()) return;
@@ -51,19 +51,19 @@ namespace SA_XARM.Calibration
             // 2. マーカーイベント登録
             if (markerManager != null) markerManager.markersChanged += OnMarkersChanged;
 
-          
+            // 3. WebSocket
+            if (WebSocketManager.Instance != null)
+            {
                 WebSocketManager.Instance.On<MouseKeyInput>("KeyInput", (input) =>
                 {
                     if (input.key == "space")
                     {
-                        SpatialDebugLog.Instance.Log("® Remote Space Key Received!", doLog, "green");
-                        // メインスレッドで実行する必要があるため、Updateなどでフラグ監視するか、
-                        // ここで即座に呼ぶならUnity API操作に注意（WebSocketライブラリの実装による）
-                        // ※ここではメインスレッド前提で呼びます
+                        SpatialDebugLog.Instance?.Log("® Remote Space Key Received!", doLog, "green");
                         TryRestoreObjects();
                     }
                 });
-         
+            }
+
             UpdateUI();
         }
 
@@ -79,7 +79,7 @@ namespace SA_XARM.Calibration
             
             if (!File.Exists(path))
             {
-                SpatialDebugLog.Instance.LogError($"Config not found: {path}", doLog);
+                SpatialDebugLog.Instance?.LogError($"Config not found: {path}", doLog);
                 if (statusText != null) statusText.text = "<color=red>Config File Not Found</color>";
                 return false;
             }
@@ -93,18 +93,18 @@ namespace SA_XARM.Calibration
                 
                 if (loadedPoints != null && loadedPoints.Count > 0)
                 {
-                    SpatialDebugLog.Instance.LogSuccess($"Loaded {loadedPoints.Count} points.", doLog);
+                    SpatialDebugLog.Instance?.LogSuccess($"Loaded {loadedPoints.Count} points.", doLog);
                     return true;
                 }
                 else
                 {
-                    SpatialDebugLog.Instance.LogError("JSON loaded but list is empty.", doLog);
+                    SpatialDebugLog.Instance?.LogError("JSON loaded but list is empty.", doLog);
                     return false;
                 }
             }
             catch (System.Exception e)
             {
-                SpatialDebugLog.Instance.LogError($"JSON Error: {e.Message}", doLog);
+                SpatialDebugLog.Instance?.LogError($"JSON Error: {e.Message}", doLog);
                 return false;
             }
         }
@@ -136,7 +136,7 @@ namespace SA_XARM.Calibration
             // マーカーが揃っていなければ実行しない
             if (!posOrigin.HasValue || !posXEnd.HasValue)
             {
-                SpatialDebugLog.Instance.Log("Markers A & B not ready yet!", doLog, "yellow");
+                SpatialDebugLog.Instance?.Log("Markers A & B not ready yet!", doLog, "yellow");
                 return;
             }
 
@@ -151,7 +151,7 @@ namespace SA_XARM.Calibration
         // --- 実際の復元処理 ---
         private void PerformRestoration()
         {
-            SpatialDebugLog.Instance.Log("Restoring Objects...", doLog, "cyan");
+            SpatialDebugLog.Instance?.Log("Restoring Objects...", doLog, "cyan");
 
             // 1. 基準行列（World -> Local）計算
             Matrix4x4 worldToLocalMatrix = GridCalculationLogic.CalculateAnchorMatrix(posOrigin.Value, posXEnd.Value);
@@ -172,7 +172,7 @@ namespace SA_XARM.Calibration
             }
 
             restorationComplete = true;
-            SpatialDebugLog.Instance.LogSuccess("All Objects Restored!", doLog);
+            SpatialDebugLog.Instance?.LogSuccess("All Objects Restored!", doLog);
             UpdateUI();
         }
 

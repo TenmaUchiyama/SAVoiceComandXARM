@@ -23,11 +23,11 @@
 
   // Phase labels
   const phaseLabels: Record<string, string> = {
-    idle: '待機中',
-    processing: '処理中...',
-    showing_result: '結果表示',
-    awaiting_confirmation: '確認待ち',
-    executing: 'ロボット実行中',
+    idle: 'Idle',
+    processing: 'Processing...',
+    showing_result: 'Showing Result',
+    awaiting_confirmation: 'Awaiting Confirmation',
+    executing: 'Executing',
   };
 
   function sendUtterance(text: string) {

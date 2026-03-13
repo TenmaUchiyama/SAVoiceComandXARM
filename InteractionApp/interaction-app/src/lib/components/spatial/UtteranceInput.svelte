@@ -23,9 +23,9 @@
     type="text"
     bind:value={text}
     onkeydown={handleKeydown}
-    placeholder="発話を入力してください (e.g. 右の赤いオブジェクトを取って)"
+    placeholder="Enter utterance (e.g. take the red object on the right)"
   />
-  <button class="btn" onclick={submit} disabled={!text.trim()}>送信</button>
+  <button class="btn" onclick={submit} disabled={!text.trim()}>Send</button>
 </div>
 
 <style>

@@ -3,12 +3,12 @@
   import { appState, wsRobot } from '$lib/appState.svelte';
   import type { JogAxis } from '$lib/types';
 
-  // ステップサイズ (mm / ループ 1 回分、keyboard_move.py の STEP_MM に相当)
+  // Step size (mm per loop iteration, equivalent to STEP_MM in keyboard_move.py)
   let stepMm = $state(4);
 
   let jogging = $state<JogAxis | ''>('');
 
-  // jog_stopped イベントで最終位置を反映
+  // Reflect final position on jog_stopped event
   function onJogStopped(data: unknown) {
     const d = data as { success: boolean; position?: number[] };
     if (d.position && appState.robotStatus) {
@@ -16,7 +16,7 @@
     }
   }
 
-  // jog_started でエラーを通知
+  // Notify error on jog_started
   function onJogStarted(data: unknown) {
     const d = data as { success: boolean; message?: string };
     if (!d.success) {
@@ -33,7 +33,7 @@
   onDestroy(() => {
     wsRobot.off('jog_started', onJogStarted);
     wsRobot.off('jog_stopped', onJogStopped);
-    // コンポーネント破棄時も安全に停止
+    // Stop safely when component is destroyed
     if (jogging) {
       wsRobot.send('jog_stop', {});
       jogging = '';
@@ -102,14 +102,14 @@
     </div>
   </div>
 
-  <p class="hint">押し続けている間、30ms ごとに {stepMm}mm ずつ連続移動します。</p>
+  <p class="hint">Moves continuously by {stepMm}mm every 30ms while held.</p>
 
   {#if !wsRobot.connected}
     <p class="ws-warn">Robot WS disconnected — reconnecting…</p>
   {/if}
 
   <div class="jog-grid">
-    <!-- Top row: X+ (keyboard_move.py の up と同じ) -->
+    <!-- Top row: X+ (same as up in keyboard_move.py) -->
     <div class="jog-cell"></div>
     <button
       class="jog-btn"
@@ -138,7 +138,7 @@
       onblur={() => stopJog('z')}
     >Z+</button>
 
-    <!-- Middle row: Y-, Y+ (keyboard_move.py の left/right と同じ) -->
+    <!-- Middle row: Y-, Y+ (same as left/right in keyboard_move.py) -->
     <button
       class="jog-btn"
       class:active={jogging === '-y'}

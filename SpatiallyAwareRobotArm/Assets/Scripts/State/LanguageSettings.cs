@@ -2,7 +2,6 @@ using System;
 using Newtonsoft.Json;
 using SA_XARM.Network.Websocket;
 using SA_XARM.SpeechRecognizer;
-using SA_XARM.WakeWord;
 using UnityEngine;
 
 namespace SA_XARM.SpatialRef.State
@@ -25,7 +24,6 @@ namespace SA_XARM.SpatialRef.State
 
         [Header("References")]
         [SerializeField] private AppStateManager appStateManager;
-        [SerializeField] private WakeWordManager wakeWordManager;
 
         [Header("Current Language")]
         [SerializeField] private string currentLanguage = "ja";

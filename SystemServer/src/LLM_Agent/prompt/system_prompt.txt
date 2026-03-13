@@ -61,12 +61,16 @@
 発話から以下を抽出し、最優先の軸で order_by を決める：
 
 - 「一番近い」「最も近い」「nearest」→ order_by: depth_rank asc, select.rank=1
+- 「一番遠い」「最も遠い」「farthest」→ order_by: depth_rank desc, select.rank=1
 - 「右」「右端」「一番右」→ order_by: right_rank asc, select.rank=1
+- 「左」「左端」「一番左」→ order_by: right_rank desc, select.rank=1
 - 「正面」「真ん前」「一番前」→ order_by: front_rank asc, select.rank=1
+- 「奥」「一番奥」→ order_by: front_rank desc, select.rank=1
 - 「2番目」「二番目」「second」→ select.rank=2
 - 「3番目」「third」→ select.rank=3
 
 ※ 重要：rankの意味は入力定義に従うこと（例：right_rank=1 が最も右 など、実装仕様に従う）。
+※ フィルター適用後に候補が0件になる場合は、最も制約の強いfilterを外してorder_byのみで選択すること。
 
 ---
 

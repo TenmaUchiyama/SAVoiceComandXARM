@@ -10,20 +10,27 @@
   import LogPanel from '$lib/components/LogPanel.svelte';
 
   // Connection settings
-  let unityUrl = $state(appState.unityWsUrl);
-  let serverUrl = $state(appState.serverBaseUrl);
+  const FIXED_PORT = 8765;
+
+  function extractIp(url: string): string {
+    try { return new URL(url).hostname; } catch { return 'localhost'; }
+  }
+
+  let serverIp = $state(extractIp(appState.serverBaseUrl));
   let showSettings = $state(false);
 
   function connectAll() {
+    const unityUrl = `ws://${serverIp}:${FIXED_PORT}`;
+    const serverUrl = `http://${serverIp}:${FIXED_PORT}`;
+
     appState.unityWsUrl = unityUrl;
     appState.serverBaseUrl = serverUrl;
     apiConfig.serverBaseUrl = serverUrl;
 
-    const wsBase = serverUrl.replace(/^http/, 'ws');
     wsUnity.connect(unityUrl);
-    wsSpatial.connect(`${wsBase}/spatial`);
-    wsStatus.connect(`${wsBase}/status`);
-    wsRobot.connect(`${wsBase}/robot`);
+    wsSpatial.connect(`ws://${serverIp}:${FIXED_PORT}/spatial`);
+    wsStatus.connect(`ws://${serverIp}:${FIXED_PORT}/status`);
+    wsRobot.connect(`ws://${serverIp}:${FIXED_PORT}/robot`);
 
     showSettings = false;
   }
@@ -51,7 +58,7 @@
       <button
         class="lang-btn"
         onclick={() => {
-          const next = appState.language === 'ja' ? 'en' : 'ja';
+          const next = appState.language === 'en' ? 'ja' : 'en';
           appState.language = next;
           wsUnity.send('set_language', { language: next });
         }}
@@ -66,13 +73,10 @@
   {#if showSettings}
     <div class="settings-bar">
       <label>
-        <span>Unity WS</span>
-        <input type="text" bind:value={unityUrl} placeholder="ws://localhost:8080" />
+        <span>IP Address</span>
+        <input type="text" bind:value={serverIp} placeholder="192.168.1.100" />
       </label>
-      <label>
-        <span>Server</span>
-        <input type="text" bind:value={serverUrl} placeholder="http://localhost:8080" />
-      </label>
+      <span class="fixed-label">ws:// :{FIXED_PORT}</span>
       <button class="btn connect" onclick={connectAll}>Connect All</button>
       <button class="btn disconnect" onclick={disconnectAll}>Disconnect</button>
     </div>
@@ -205,8 +209,15 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    flex: 1;
-    max-width: 320px;
+    flex: 0 0 auto;
+    width: 220px;
+  }
+  .fixed-label {
+    font-size: 0.75rem;
+    color: #475569;
+    font-family: monospace;
+    align-self: flex-end;
+    padding-bottom: 9px;
   }
   .settings-bar label span {
     font-size: 0.7rem;

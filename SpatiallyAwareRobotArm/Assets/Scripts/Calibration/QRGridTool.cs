@@ -219,11 +219,11 @@ namespace SA_XARM.Calibration
                 SpatialDebugLog.Instance.Log("Executing Restore from Remote Data...", doLog, "green");
                 SelectMode(Mode.Restore);
 
-                if (clearBeforeRestore)
-                    ClearSpawnedOnly();
-
                 if (gridToRestore != null && gridToRestore.Count > 0)
+                {
+                    if (clearBeforeRestore) ClearGridSpawned();
                     RestoreFromPoints(gridToRestore);
+                }
 
                 if (robotLocalToRestore.HasValue)
                     RestoreRobotFromLocal(robotLocalToRestore.Value);
@@ -401,6 +401,7 @@ namespace SA_XARM.Calibration
 
             if (mode == Mode.Teach)
             {
+                hasRestored = false;
                 SpatialDebugLog.Instance.Log("Mode => TEACH (Space: record grid, L: record robot)", doLog, "green");
                 if (probeTransform != null) probeTransform.gameObject.SetActive(true);
             }
@@ -905,7 +906,7 @@ namespace SA_XARM.Calibration
             var gridPoints = LoadGridFromFile();
             if (gridPoints != null && gridPoints.Count > 0)
             {
-                if (clearBeforeRestore) ClearSpawnedOnly();
+                if (clearBeforeRestore) ClearGridSpawned();
                 RestoreFromPoints(gridPoints);
                 restoredAny = true;
             }
@@ -913,7 +914,8 @@ namespace SA_XARM.Calibration
             var robotLocal = LoadRobotFromFile();
             if (robotLocal.HasValue)
             {
-                if (clearBeforeRestore && !restoredAny) ClearSpawnedOnly();
+                // RestoreRobotFromLocal 内で旧 spawnedRobotPoint を自前で破棄するので
+                // ここで ClearRobotSpawned() を呼ぶ必要はない
                 RestoreRobotFromLocal(robotLocal.Value);
                 restoredAny = true;
             }
@@ -1029,12 +1031,21 @@ namespace SA_XARM.Calibration
 
         private void ClearSpawnedOnly()
         {
+            ClearGridSpawned();
+            ClearRobotSpawned();
+        }
+
+        private void ClearGridSpawned()
+        {
             for (int i = 0; i < spawned.Count; i++)
             {
                 if (spawned[i] != null) Destroy(spawned[i]);
             }
             spawned.Clear();
+        }
 
+        private void ClearRobotSpawned()
+        {
             if (spawnedRobotPoint != null)
             {
                 Destroy(spawnedRobotPoint);

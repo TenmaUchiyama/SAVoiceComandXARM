@@ -32,7 +32,7 @@ let _serverBaseUrl = $state(
   loadSetting("server_base_url", "http://localhost:8765"),
 );
 let _language = $state<AppLanguage>(
-  (loadSetting("app_language", "ja") as AppLanguage),
+  loadSetting("app_language", "en") as AppLanguage,
 );
 let _robotEnabled = $state(false);
 let _spatialPhase = $state<SpatialPhase>("idle");

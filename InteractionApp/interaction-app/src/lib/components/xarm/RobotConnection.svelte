@@ -45,7 +45,7 @@
       if (!res.success) {
         appState.addToast(`Manual mode failed: ${res.message}`, 'error');
       }
-      // status は broadcast で自動更新されるが念のため
+      // status is auto-updated via broadcast, but refresh just in case
       appState.robotStatus = await api.robotStatus();
     } catch (e) {
       appState.addToast(`Manual mode error: ${e}`, 'error');
@@ -102,7 +102,7 @@
       class:active={isManualMode}
       disabled={loading === 'ManualMode'}
       onclick={toggleManualMode}
-      title="Mode 1 (サーボモード) を維持。Jog のたびのモード切り替えが不要になる。"
+      title="Maintains Mode 1 (Servo Mode). Eliminates the need to switch modes every time you jog."
     >
       {#if loading === 'ManualMode'}
         …
@@ -113,7 +113,7 @@
       {/if}
     </button>
     {#if isManualMode}
-      <span class="manual-warn">SERVO MODE — Home/Initial 使用前に OFF にしてください</span>
+      <span class="manual-warn">SERVO MODE — Turn OFF before using Home/Initial</span>
     {/if}
   </div>
 </section>

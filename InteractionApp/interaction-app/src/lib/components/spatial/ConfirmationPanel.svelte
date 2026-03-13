@@ -10,20 +10,20 @@
   let rejectText = $state('');
 
   function reject() {
-    onReject(rejectText.trim() || 'いいえ');
+    onReject(rejectText.trim() || 'No');
     rejectText = '';
   }
 </script>
 
 <div class="confirmation">
-  <p class="prompt">選択結果を確認してください:</p>
+  <p class="prompt">Please confirm the selection result:</p>
   <div class="actions">
-    <button class="btn accept" onclick={onAccept}>✅ Accept (はい)</button>
+    <button class="btn accept" onclick={onAccept}>✅ Accept (Yes)</button>
     <div class="reject-group">
       <input
         type="text"
         bind:value={rejectText}
-        placeholder="言い直し / 理由 (任意)"
+        placeholder="Rephrase / Reason (optional)"
         onkeydown={(e) => e.key === 'Enter' && reject()}
       />
       <button class="btn reject" onclick={reject}>❌ Reject</button>

@@ -569,7 +569,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7d14a54c6995bd14ca0d9fe1093cbef3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  serverAddress: 192.168.10.107
+  serverAddress: 192.168.108.164
   serverPort: 8080
   spatialPath: /spatial
   autoConnectOnStart: 1
@@ -587,7 +587,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d6fc9c3ac63cac64c917ae12efcbfc34, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  serverAddress: 192.168.10.107
+  serverAddress: 192.168.108.164
   serverPort: 8765
   wsPath: /
   autoConnectOnStart: 1
@@ -3601,7 +3601,8 @@ PrefabInstance:
       value: 2
       objectReference: {fileID: 0}
     m_RemovedComponents: []
-    m_RemovedGameObjects: []
+    m_RemovedGameObjects:
+    - {fileID: 5892080426215779171, guid: bcea024db4a88ec4f8fe8bcd43b7a532, type: 3}
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: bcea024db4a88ec4f8fe8bcd43b7a532, type: 3}
@@ -3619,17 +3620,6 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3fde71715f876d444955400e50d67e27, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
---- !u!114 &860750700 stripped
-MonoBehaviour:
-  m_CorrespondingSourceObject: {fileID: 5441693448503929340, guid: bcea024db4a88ec4f8fe8bcd43b7a532, type: 3}
-  m_PrefabInstance: {fileID: 860750697}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 456a8352e2adeb3408d246b13868a7d2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
 --- !u!1 &910190525
@@ -3802,7 +3792,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   appStateManager: {fileID: 1205799069}
-  wakeWordManager: {fileID: 860750700}
   currentLanguage: en
   autoDetectSystemLanguage: 1
 --- !u!1 &1050065728
