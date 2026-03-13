@@ -18,6 +18,7 @@ Unity / xArm のデバッグができる統合サーバー。
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import sys
@@ -107,13 +108,40 @@ def create_app(arm, files: FileManager, hub: WSHub) -> FastAPI:
                 raw = await ws.receive_text()
                 try:
                     ev = parse_incoming(raw)
-                    log.info("[Unity RX] %s", ev.event_id)
+                    # イベント種別に応じて詳細ログを出す
+                    if ev.event_id == "pc_debug_read_json_response":
+                        ok = ev.payload.get("success", False)
+                        err = ev.payload.get("error", "")
+                        rel = ev.payload.get("relative_path", "")
+                        content = ev.payload.get("content", "")
+                        clen = len(content) if isinstance(content, str) else "?"
+                        log.info(
+                            "[Unity RX] %s | path=%s success=%s len=%s%s",
+                            ev.event_id, rel, ok, clen,
+                            f" error={err!r}" if err else "",
+                        )
+                    elif ev.event_id == "pc_debug_read_json_request":
+                        rel = ev.payload.get("relative_path", "")
+                        log.info(
+                            "[Unity RX] %s | path=%s  ← フロントエンドから誤送信の可能性あり",
+                            ev.event_id, rel,
+                        )
+                    else:
+                        log.info("[Unity RX] %s", ev.event_id)
                     handle_unity_event(ev, files)
                     hub.resolve_pending(ev.event_id, ev.payload)
+
+                    # Broadcast set_language to all unity clients (so Unity app receives it)
+                    if ev.event_id == "set_language":
+                        lang = ev.payload.get("language", "ja")
+                        log.info("[Unity] Broadcasting set_language: %s", lang)
+                        await hub.send_to("unity", "set_language", {"language": lang})
                 except Exception as e:
                     log.warning("[Unity] parse error: %s", e)
         except WebSocketDisconnect:
             pass
+        except asyncio.CancelledError:
+            raise
         finally:
             hub.remove("unity", ws)
             debug_log.info("unity", "Unity client disconnected")
@@ -129,6 +157,8 @@ def create_app(arm, files: FileManager, hub: WSHub) -> FastAPI:
                 log.info("[Spatial RX] %s", raw[:120])
         except WebSocketDisconnect:
             pass
+        except asyncio.CancelledError:
+            raise
         finally:
             hub.remove("spatial", ws)
             debug_log.info("spatial", "Spatial client disconnected")
@@ -151,6 +181,8 @@ def create_app(arm, files: FileManager, hub: WSHub) -> FastAPI:
                 await ws.receive_text()
         except WebSocketDisconnect:
             pass
+        except asyncio.CancelledError:
+            raise
         finally:
             hub.remove("status", ws)
 
@@ -173,6 +205,8 @@ def create_app(arm, files: FileManager, hub: WSHub) -> FastAPI:
                     log.warning("[Robot WS] error: %s", e)
         except WebSocketDisconnect:
             pass
+        except asyncio.CancelledError:
+            raise
         finally:
             hub.remove("robot", ws)
             # 安全措置: 切断時に jog ループを停止し Mode 0 に戻す
@@ -209,12 +243,25 @@ def main():
     args = parse_args()
 
     # Save directory
+    
     save_dir = (
-        Path(args.save_dir)
+        Path(args.save_dir).resolve()
         if args.save_dir
         else Path(__file__).resolve().parent / "saved_grids"
     )
     files = FileManager(save_dir)
+
+    # 起動時: saved_grids の中身を表示
+    log.info("  [saved_grids] grids: %s", files.list_grid_names() or "(none)")
+    
+    log.info("  [saved_grids] robots: %s", files.list_robot_names() or "(none)")
+    try:
+        name, data = files.load_grid()
+        points = data if isinstance(data, list) else (data.get("gridPoints") or data.get("points") or [])
+        n = len(points) if isinstance(points, list) else 0
+        log.info("  [saved_grids] latest grid: %s (%d points)", name, n)
+    except FileNotFoundError:
+        log.info("  [saved_grids] latest grid: (none)")
 
     # xArm instance (本番 or mock)
     arm = create_arm(mock=args.mock, ip=args.arm_ip)

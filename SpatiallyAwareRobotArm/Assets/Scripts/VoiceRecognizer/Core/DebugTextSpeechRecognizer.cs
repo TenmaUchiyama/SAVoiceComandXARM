@@ -8,6 +8,7 @@ namespace SA_XARM.SpeechRecognizer
 {
     public event Action<string> OnRecognized;
     public event Action<string> OnError;
+    public event Action OnCompleted;
 
     public void StartListening()
     {

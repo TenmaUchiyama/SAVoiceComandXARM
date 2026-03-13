@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from typing import Any, Awaitable, Callable, Dict
+from loguru import logger
 
 from fastapi import WebSocket
 
-log = logging.getLogger("unified_debug")
+# loguru は debug モジュールですでに初期化されている想定
+log = logger.bind(source="ROBOT-WS")
 
 # ハンドラーの型
 WsCommandHandler = Callable[
@@ -55,7 +56,7 @@ async def dispatch(ws: WebSocket, msg: Dict[str, Any], arm, hub) -> None:
     try:
         await handler(ws, msg, arm, hub)
     except Exception as e:
-        log.exception("[Robot WS] handler error for %s: %s", cmd_type, e)
+        log.error(f"[Robot WS] handler error for {cmd_type}: {e}")
         await _send(ws, {"type": "error", "message": str(e)})
 
 

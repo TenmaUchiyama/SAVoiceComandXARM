@@ -73,8 +73,8 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 8782446610523700712}
-  - component: {fileID: 6063483096730517713}
   - component: {fileID: 1224847347444534767}
+  - component: {fileID: 6063483096730517713}
   m_Layer: 0
   m_Name: UI_SpeechRecognition
   m_TagString: Untagged
@@ -98,6 +98,30 @@ Transform:
   - {fileID: 6637413419969881292}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1224847347444534767
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 702326171166065788}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 56687378955137f49b4fe64cd4b24fdb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  appStateManager: {fileID: 0}
+  speechRecognitionManager: {fileID: 0}
+  webSocketManager: {fileID: 0}
+  objectRegistry: {fileID: 0}
+  languageSettings: {fileID: 0}
+  dialogUI: {fileID: 0}
+  voiceRecognitionUI: {fileID: 2428042021350259342}
+  recordingIcon: {fileID: 0}
+  recordedText: {fileID: 6472026546992318237}
+  sendButton: {fileID: 7697590597567992772}
+  onSound: {fileID: 8300000, guid: 51de19e15e660e845bdedcfbb9c6a0e8, type: 3}
+  offSound: {fileID: 0}
 --- !u!82 &6063483096730517713
 AudioSource:
   m_ObjectHideFlags: 0
@@ -194,29 +218,6 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
---- !u!114 &1224847347444534767
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 702326171166065788}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 56687378955137f49b4fe64cd4b24fdb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  appStateManager: {fileID: 0}
-  speechRecognitionManager: {fileID: 0}
-  webSocketManager: {fileID: 0}
-  objectRegistry: {fileID: 0}
-  dialogUI: {fileID: 2428042021350259342}
-  voiceRecognitionUI: {fileID: 0}
-  recordingIcon: {fileID: 0}
-  recordedText: {fileID: 6472026546992318237}
-  sendButton: {fileID: 7697590597567992772}
-  onSound: {fileID: 8300000, guid: 51de19e15e660e845bdedcfbb9c6a0e8, type: 3}
-  offSound: {fileID: 0}
 --- !u!1 &904227402070793063
 GameObject:
   m_ObjectHideFlags: 0
@@ -1558,8 +1559,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: 
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 600fc475c0019fc4ba0b674898553f30, type: 2}
-  m_sharedMaterial: {fileID: -6344864429881549029, guid: 600fc475c0019fc4ba0b674898553f30, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []

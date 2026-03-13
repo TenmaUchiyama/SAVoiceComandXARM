@@ -6,6 +6,7 @@
     { id: 'unity', label: 'Unity' },
     { id: 'xarm', label: 'XArm' },
     { id: 'spatial', label: 'Spatial' },
+    { id: 'grid', label: 'Grid' },
     { id: 'log', label: 'Log' },
   ];
 </script>

@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(python3:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(cd \"C:\\\\Users\\\\Tenma\\\\Desktop\\\\Keio\\\\SpatiallyAwareXarmRobot\\\\SAVoiceComandXARM\\\\InteractionApp\\\\interaction-app\" && npx svelte-check --tsconfig ./tsconfig.json 2>&1 | head -30)"
     ]
   }
 }

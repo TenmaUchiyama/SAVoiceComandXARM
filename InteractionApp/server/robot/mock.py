@@ -83,6 +83,41 @@ class XArmMock:
         debug_log.info("robot", f"Mock pick at ({x},{y}) — complete")
         return True, f"mock pick at ({x},{y})"
 
+    def place_at(self, place_key: str = "default") -> Tuple[bool, str]:
+        debug_log.step("robot", f"Mock place at '{place_key}' — simulating...")
+        time.sleep(0.3)
+        debug_log.info("robot", f"Mock place at '{place_key}' — complete")
+        return True, f"mock place at '{place_key}'"
+
+    def pick_and_place(self, x: Any, y: Any, place_key: str = "default") -> Tuple[bool, str]:
+        ok, msg = self.pick_at(x, y)
+        if not ok:
+            return False, f"Pick failed: {msg}"
+        ok, msg = self.place_at(place_key)
+        if not ok:
+            return False, f"Place failed: {msg}"
+        return True, f"mock pick_and_place ({x},{y}) -> '{place_key}'"
+
+    def reload_place_map(self) -> Tuple[bool, str]:
+        debug_log.info("robot", "Mock place map reloaded")
+        return True, "mock reloaded"
+
+    def record_grid_cell(self, col: int, row: int) -> Tuple[bool, str]:
+        key = f"{col},{row}"
+        self._grid_map[key] = list(self._position[:6])
+        debug_log.info("robot", f"Mock recorded grid cell ({col},{row})")
+        return True, f"mock recorded ({col},{row})"
+
+    def record_place(self, place_key: str = "default") -> Tuple[bool, str]:
+        debug_log.info("robot", f"Mock recorded place '{place_key}'")
+        return True, f"mock recorded place '{place_key}'"
+
+    def calibration_status(self) -> dict:
+        return {
+            "grid_keys": list(self._grid_map.keys()),
+            "place_keys": ["default"],
+        }
+
     # ==== マニュアルモード ====
 
     def set_manual_mode(self, enabled: bool) -> Tuple[bool, str]:

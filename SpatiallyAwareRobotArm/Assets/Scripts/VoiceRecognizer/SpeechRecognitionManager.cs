@@ -1,9 +1,9 @@
 using System;
+using System.Collections;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
-using UnityEngine.Windows.Speech;
 
 namespace SA_XARM.SpeechRecognizer
 {
@@ -35,16 +35,44 @@ namespace SA_XARM.SpeechRecognizer
         void Awake()
         {
             speechRecognizer = SpeechRecognizerFactory.Create();
-            speechRecognizer.OnRecognized += OnSpeechRecognized;
+            speechRecognizer.OnRecognized += HandleRecognized;
             speechRecognizer.OnError += OnVoiceError;
+            speechRecognizer.OnCompleted += OnRecognizerCompleted;
 
-            Debug.Log("[SpeechRecognitionManager] Selected Recognizer: "
+            SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] Selected Recognizer: "
                 + SpeechRecognizerFactory.selectedRecognizer);
+        }
+
+        private void HandleRecognized(string text)
+        {
+            LastRecognizedText = text;
+            SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] Recognized: " + text);
+            if (userText != null) userText.text = text;
+            _onSpeechRecognized?.Invoke(text);
+            OnSpeechRecognized?.Invoke(text);
         }
 
         private void OnVoiceError(string text)
         {
-            Debug.LogError("[SpeechRecognitionManager] Voice Error: " + text);
+            SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] Voice Error: " + text);
+        }
+
+        private void OnRecognizerCompleted()
+        {
+            // DictationRecognizer がタイムアウト等で終了したら次フレームで再起動
+            if (isListening)
+            {
+                StartCoroutine(RestartListeningCoroutine());
+            }
+        }
+
+        private IEnumerator RestartListeningCoroutine()
+        {
+            isListening = false;
+            yield return null; // 1フレーム待つ
+            SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] Restarting DictationRecognizer...");
+            speechRecognizer.StartListening();
+            isListening = true;
         }
 
 
@@ -69,22 +97,20 @@ namespace SA_XARM.SpeechRecognizer
             }
         }
 
+        private void Start()
+        {
+            StartListening();
+        }
+
         public void StartListening()
         {
             if (isListening)
             {
-                Debug.LogWarning("[SpeechRecognitionManager] Already listening");
+                SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] Already listening");
                 return;
             }
 
-            Debug.Log("[SpeechRecognitionManager] StartListening");
-
-            // ★ PhraseRecognitionSystem を止める
-            if (PhraseRecognitionSystem.Status == SpeechSystemStatus.Running)
-            {
-                Debug.Log("[SpeechRecognitionManager] Shutdown PhraseRecognitionSystem");
-                PhraseRecognitionSystem.Shutdown();
-            }
+            SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] StartListening");
 
             speechRecognizer.StartListening();
   
@@ -102,20 +128,13 @@ namespace SA_XARM.SpeechRecognizer
         {
             if (!isListening)
             {
-                Debug.LogWarning("[SpeechRecognitionManager] Not listening");
+                SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] Not listening");
                 return;
             }
 
-            Debug.Log("[SpeechRecognitionManager] StopListening");
+            SpatialDebugLog.Instance?.Log("[SpeechRecognitionManager] StopListening");
 
             speechRecognizer.StopListening();
-
-            // ★ WakeWord を復活させる
-            if (PhraseRecognitionSystem.Status == SpeechSystemStatus.Stopped)
-            {
-                Debug.Log("[SpeechRecognitionManager] Restart PhraseRecognitionSystem");
-                PhraseRecognitionSystem.Restart();
-            }
 
             isListening = false;
             

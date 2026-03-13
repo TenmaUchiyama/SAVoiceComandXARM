@@ -49,7 +49,7 @@ namespace SA_XARM.Network
                         var error = root.ToObject<ServerErrorMessage>();
                         string msg = error != null
                             ? $"{error.code}: {error.message}"
-                            : "不明なサーバーエラー";
+                            : "Unknown server error";
                         if (SpatialDebugLog.Instance != null)
                         {
                             SpatialDebugLog.Instance.Log($"[MessageRouter] {msg}", true, "red");

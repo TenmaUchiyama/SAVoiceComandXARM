@@ -7,6 +7,7 @@ import type {
   RobotMarkerConfig,
   DebugLogEntry,
   RobotStatusResponse,
+  AppLanguage,
 } from "./types";
 import { WsManager } from "./ws.svelte";
 
@@ -29,6 +30,9 @@ let _activeTab = $state<TabId>("unity");
 let _unityWsUrl = $state(loadSetting("unity_ws_url", "ws://localhost:8765"));
 let _serverBaseUrl = $state(
   loadSetting("server_base_url", "http://localhost:8765"),
+);
+let _language = $state<AppLanguage>(
+  (loadSetting("app_language", "ja") as AppLanguage),
 );
 let _robotEnabled = $state(false);
 let _spatialPhase = $state<SpatialPhase>("idle");
@@ -80,6 +84,15 @@ export const appState = {
   set serverBaseUrl(v: string) {
     _serverBaseUrl = v;
     saveSetting("server_base_url", v);
+  },
+
+  // Language
+  get language() {
+    return _language;
+  },
+  set language(v: AppLanguage) {
+    _language = v;
+    saveSetting("app_language", v);
   },
 
   // Robot

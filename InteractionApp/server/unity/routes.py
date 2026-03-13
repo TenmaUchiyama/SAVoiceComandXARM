@@ -9,15 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+from loguru import logger
 
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from debug import debug_log
 from hub import (
     WSHub,
-    parse_incoming,
     IncomingEvent,
     CALIB_REQ, CALIB_RES,
     LIST_REQ, LIST_RES,
@@ -28,7 +27,8 @@ from hub import (
 )
 from files import FileManager
 
-log = logging.getLogger("unified_debug")
+# loguru は debug モジュールですでに初期化されている想定
+log = logger.bind(source="UNITY")
 
 router = APIRouter(tags=["unity"])
 
@@ -96,28 +96,36 @@ def init_unity_routes(files: FileManager, hub: WSHub) -> APIRouter:
         body = await request.json()
         rel_path = body.get("relative_path", "qr_grid_config.json")
         kind = body.get("kind", "grid")
+        unity_clients = len(hub.unity)
+        debug_log.info("unity", f"import {kind}: rel_path={rel_path!r}, unity_clients={unity_clients}")
         if not hub.unity:
+            debug_log.warn("unity", "import failed: Unity not connected")
             return JSONResponse({"error": "No Unity client connected"}, 503)
         try:
+            debug_log.info("unity", f"Sending {READ_REQ} → Unity (rel_path={rel_path!r})")
             result = await hub.request(
                 "unity", READ_REQ, READ_RES, {"relative_path": rel_path}
             )
-            if not result.get("success"):
-                return JSONResponse(
-                    {"error": result.get("error", "read failed")}, 500
-                )
+            ok = result.get("success", False)
+            err = result.get("error", "")
             content = result.get("content", "")
+            clen = len(content) if isinstance(content, str) else "?"
+            debug_log.info("unity", f"Got {READ_RES}: success={ok} len={clen}" + (f" error={err!r}" if err else ""))
+            if not ok:
+                return JSONResponse({"error": err or "read failed"}, 500)
             try:
                 parsed = json.loads(content) if isinstance(content, str) else content
             except Exception as e:
+                debug_log.error("unity", f"JSON parse failed: {e}")
                 return JSONResponse({"error": f"JSON parse failed: {e}"}, 500)
             if kind == "robot":
                 path = files.save_robot(parsed)
             else:
                 path = files.save_grid(parsed)
-            debug_log.info("unity", f"Imported {kind} config: {path.name}")
+            debug_log.info("unity", f"Saved {kind} → {path.name}")
             return {"success": True, "filename": path.name, "kind": kind}
         except asyncio.TimeoutError:
+            debug_log.error("unity", f"Timeout waiting for {READ_RES} (rel_path={rel_path!r})")
             return JSONResponse({"error": "Unity did not respond in time"}, 504)
 
     return router
@@ -136,9 +144,11 @@ def handle_unity_event(ev: IncomingEvent, files: FileManager):
         if isinstance(data, dict) and "value" in data and len(data) == 1:
             data = data["value"]
         if data:
-            path = files.save_grid(data)
+            # タイムスタンプ付きファイルと manual ファイルの両方に保存
+            ts_path = files.save_grid(data)
+            files.save_grid(data, filename="qr_grid_config_manual.json")
             count = len(data) if isinstance(data, list) else "?"
-            debug_log.info("unity", f"Grid config saved: {path.name} ({count} points)")
+            debug_log.info("unity", f"Grid config saved: {ts_path.name} + manual ({count} points)")
 
     elif ev.event_id == SAVE_ROBOT_EVENT:
         data = ev.payload_raw

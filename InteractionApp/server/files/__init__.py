@@ -30,9 +30,12 @@ class FileManager:
         self.save_dir.mkdir(parents=True, exist_ok=True)
 
     # === Grid ===
+    _GRID_MANUAL = "qr_grid_config_manual.json"
+
     def list_grids(self) -> List[Path]:
+        files = list(self.save_dir.glob("qr_grid_config*.json"))
         return sorted(
-            self.save_dir.glob("qr_grid_config_*.json"),
+            files,
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -40,10 +43,13 @@ class FileManager:
     def list_grid_names(self) -> List[str]:
         return [p.name for p in self.list_grids()]
 
-    def save_grid(self, data: Any) -> Path:
+    def save_grid(self, data: Any, filename: Optional[str] = None) -> Path:
         data = _normalize_json_data(data)
-        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = self.save_dir / f"qr_grid_config_{ts}.json"
+        if filename and filename.endswith(".json") and "qr_grid_config" in filename:
+            path = self.save_dir / filename
+        else:
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            path = self.save_dir / f"qr_grid_config_{ts}.json"
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         return path
@@ -56,8 +62,9 @@ class FileManager:
 
     # === Robot ===
     def list_robots(self) -> List[Path]:
+        files = list(self.save_dir.glob("qr_robot_config*.json"))
         return sorted(
-            self.save_dir.glob("qr_robot_config_*.json"),
+            files,
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -65,10 +72,13 @@ class FileManager:
     def list_robot_names(self) -> List[str]:
         return [p.name for p in self.list_robots()]
 
-    def save_robot(self, data: Any) -> Path:
+    def save_robot(self, data: Any, filename: Optional[str] = None) -> Path:
         data = _normalize_json_data(data)
-        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = self.save_dir / f"qr_robot_config_{ts}.json"
+        if filename and filename.endswith(".json") and "qr_robot_config" in filename:
+            path = self.save_dir / filename
+        else:
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            path = self.save_dir / f"qr_robot_config_{ts}.json"
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         return path
@@ -80,12 +90,24 @@ class FileManager:
         return target.name, _normalize_json_data(data)
 
     # === helper ===
-    def _resolve(self, name, list_fn, kind: str) -> Path:
-        if name:
+    def _resolve_grid_latest(self) -> Path:
+        """「最新」= まず qr_grid_config_manual.json があればそれ、なければ mtime で最新。"""
+        manual = self.save_dir / self._GRID_MANUAL
+        if manual.exists():
+            return manual
+        files = self.list_grids()
+        if not files:
+            raise FileNotFoundError(f"No saved grid files in {self.save_dir}")
+        return files[0]
+
+    def _resolve(self, name: Optional[str], list_fn, kind: str) -> Path:
+        if name and name != "latest":
             p = self.save_dir / name
             if not p.exists():
                 raise FileNotFoundError(f"{kind} file not found: {p}")
             return p
+        if kind == "grid":
+            return self._resolve_grid_latest()
         files = list_fn()
         if not files:
             raise FileNotFoundError(f"No saved {kind} files in {self.save_dir}")

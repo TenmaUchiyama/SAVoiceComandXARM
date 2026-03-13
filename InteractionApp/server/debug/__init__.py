@@ -10,11 +10,21 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-import logging
+import sys
 from collections import deque
 from typing import Any, Callable, Coroutine, Deque, List, Optional
 
-log = logging.getLogger("unified_debug")
+from loguru import logger
+
+# ログのフォーマット設定
+# loguru のデフォルトを無効にして、カスタムフォーマットを追加
+logger.remove()
+logger.add(
+    sys.stderr,
+    format="<green>{time:HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{extra[source]: <10}</cyan> | <level>{message}</level>",
+    level="DEBUG",
+    enqueue=True,
+)
 
 # 最大保持件数 (REST で履歴取得する用)
 _MAX_HISTORY = 500
@@ -65,7 +75,6 @@ class DebugLogger:
     def __init__(self):
         self._history: Deque[DebugEntry] = deque(maxlen=_MAX_HISTORY)
         self._broadcast_fn: Optional[BroadcastFn] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def set_broadcast(self, fn: BroadcastFn):
         """WebSocket ブロードキャスト関数を登録 (async def fn(json_str))。"""
@@ -98,10 +107,22 @@ class DebugLogger:
         entry = DebugEntry(level, source, message, detail)
         self._history.append(entry)
 
-        # ターミナルにも出力
-        prefix = {"info": "INFO", "warn": "WARN", "error": "ERROR", "step": "STEP"}.get(level, level.upper())
-        detail_str = f" | {detail}" if detail else ""
-        log.info("[%s][%s] %s%s", prefix, source, message, detail_str)
+        # ターミナルにも出力（loguru を使用）
+        # detail があればメッセージに付与
+        detail_str = f" | Detail: {detail}" if detail else ""
+        full_message = f"{message}{detail_str}"
+        
+        scoped_logger = logger.bind(source=source.upper())
+        
+        if level == "error":
+            scoped_logger.error(full_message)
+        elif level == "warn":
+            scoped_logger.warning(full_message)
+        elif level == "step":
+            # STEP は青色にするために DEBUG レベルを使用
+            scoped_logger.log("SUCCESS", f"[STEP] {full_message}")
+        else:
+            scoped_logger.info(full_message)
 
         # WS ブロードキャスト (fire-and-forget)
         if self._broadcast_fn is not None:

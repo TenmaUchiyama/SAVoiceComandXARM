@@ -6,6 +6,7 @@
   import UnityTab from '$lib/components/unity/UnityTab.svelte';
   import XArmTab from '$lib/components/xarm/XArmTab.svelte';
   import SpatialTab from '$lib/components/spatial/SpatialTab.svelte';
+  import GridEditor from '$lib/components/unity/GridEditor.svelte';
   import LogPanel from '$lib/components/LogPanel.svelte';
 
   // Connection settings
@@ -47,6 +48,16 @@
       <StatusBadge connected={wsSpatial.connected} label="Spatial" />
       <StatusBadge connected={wsStatus.connected} label="Status" />
       <StatusBadge connected={wsRobot.connected} label="Robot" />
+      <button
+        class="lang-btn"
+        onclick={() => {
+          const next = appState.language === 'ja' ? 'en' : 'ja';
+          appState.language = next;
+          wsUnity.send('set_language', { language: next });
+        }}
+      >
+        {appState.language === 'ja' ? 'JA' : 'EN'}
+      </button>
       <button class="gear-btn" onclick={() => (showSettings = !showSettings)}>⚙️</button>
     </div>
   </header>
@@ -86,6 +97,8 @@
       <XArmTab />
     {:else if appState.activeTab === 'spatial'}
       <SpatialTab />
+    {:else if appState.activeTab === 'grid'}
+      <GridEditor />
     {:else if appState.activeTab === 'log'}
       <LogPanel />
     {/if}
@@ -149,6 +162,23 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .lang-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #38bdf8;
+    transition: all 0.15s;
+    min-width: 40px;
+    text-align: center;
+  }
+  .lang-btn:hover {
+    background: #334155;
+    border-color: #38bdf8;
   }
   .gear-btn {
     background: none;

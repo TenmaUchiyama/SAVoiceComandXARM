@@ -322,6 +322,72 @@ namespace SA_XARM.Calibration
                 }
             });
 
+            // DebugWebSocketClient (port 8765) にも Restore ハンドラを登録する。
+            // InteractionApp の RestoreAll/Restore ボタンはこちら経由でイベントを送るため。
+            var debugClient = DebugWebSocketClient.Instance;
+            if (debugClient != null)
+            {
+                debugClient.On(wsRestoreGridEvent, (jsonPayload) =>
+                {
+                    SpatialDebugLog.Instance.Log($"[QRGridTool][DebugWS] {wsRestoreGridEvent} received", doLog);
+                    try
+                    {
+                        var root = ParsePossiblyNestedPayload(jsonPayload);
+                        JToken pointsToken = root?["gridPoints"];
+                        var points = ParseGridPointsToken(pointsToken);
+                        if (points != null && points.Count > 1)
+                            points = points.OrderBy(p => p.id).ToList();
+                        if (points != null && points.Count > 0)
+                        {
+                            restoreRequestedFromRemote = true;
+                            lock (lockObj) { pendingRemoteGridPoints = points; }
+                            SpatialDebugLog.Instance.Log($"Queued remote GRID restore: {points.Count} pts", doLog, "cyan");
+                        }
+                        else
+                        {
+                            SpatialDebugLog.Instance.Log("Remote GRID restore: gridPoints is empty or missing.", doLog, "yellow");
+                        }
+                    }
+                    catch (System.Exception e)
+                    {
+                        Debug.LogError($"Remote GRID Parse Error: {e}");
+                        SpatialDebugLog.Instance.Log($"GRID Parse Error: {e.Message}", doLog, "red");
+                    }
+                });
+
+                debugClient.On(wsRestoreRobotMarkerEvent, (jsonPayload) =>
+                {
+                    SpatialDebugLog.Instance.Log($"[QRGridTool][DebugWS] {wsRestoreRobotMarkerEvent} received", doLog);
+                    try
+                    {
+                        var root = ParsePossiblyNestedPayload(jsonPayload);
+                        JToken markerToken = root?["markerData"];
+                        Vector3? robotLocal = ParseRobotMarkerData(markerToken);
+                        if (robotLocal.HasValue)
+                        {
+                            restoreRequestedFromRemote = true;
+                            lock (lockObj) { pendingRemoteRobotLocalPos = robotLocal.Value; }
+                            SpatialDebugLog.Instance.Log("Queued remote ROBOT marker restore.", doLog, "cyan");
+                        }
+                        else
+                        {
+                            SpatialDebugLog.Instance.Log("Remote ROBOT restore: markerData missing robotLocalPos/localPos.", doLog, "yellow");
+                        }
+                    }
+                    catch (System.Exception e)
+                    {
+                        Debug.LogError($"Remote ROBOT Parse Error: {e}");
+                        SpatialDebugLog.Instance.Log($"ROBOT Parse Error: {e.Message}", doLog, "red");
+                    }
+                });
+
+                SpatialDebugLog.Instance.Log("DebugWebSocket Restore handlers registered.", doLog, "gray");
+            }
+            else
+            {
+                SpatialDebugLog.Instance.Log("[QRGridTool] DebugWebSocketClient not found — Restore from InteractionApp unavailable.", doLog, "yellow");
+            }
+
             wsSubscribed = true;
             SpatialDebugLog.Instance.Log("WebSocket subscriptions ready.", doLog, "gray");
         }

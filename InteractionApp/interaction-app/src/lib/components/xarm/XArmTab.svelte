@@ -7,6 +7,7 @@
   import JogControls from './JogControls.svelte';
   import GridPickPanel from './GridPickPanel.svelte';
   import GridCellPanel from './GridCellPanel.svelte';
+  import CalibrationPanel from './CalibrationPanel.svelte';
   import DebugLogPanel from './DebugLogPanel.svelte';
 
   onMount(() => {
@@ -43,7 +44,10 @@
   <!-- Row 3: Grid Pick (座標) -->
   <GridPickPanel />
 
-  <!-- Row 4: Debug Log -->
+  <!-- Row 4: Calibration -->
+  <CalibrationPanel />
+
+  <!-- Row 5: Debug Log -->
   <DebugLogPanel />
 </div>
 

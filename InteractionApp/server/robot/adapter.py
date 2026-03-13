@@ -13,7 +13,12 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from loguru import logger
+
 from debug import debug_log
+
+# loguru は debug モジュールですでに初期化されている想定
+log = logger.bind(source="ROBOT-ADPT")
 
 # ---------------------------------------------------------------------------
 # 本番モジュールのパスを追加
@@ -46,8 +51,9 @@ except ImportError:
     GRIP_OPEN = 850
     GRIP_CLOSE = 350
 
-# デフォルトの grid_pose_map.json
+# デフォルトの grid_pose_map.json / place_pose_map.json
 _DEFAULT_GRID_JSON = str(_XARM_DIR / "grid_pose_map.json")
+_DEFAULT_PLACE_JSON = str(_XARM_DIR / "place_pose_map.json")
 
 
 class XArmAdapter:
@@ -57,7 +63,7 @@ class XArmAdapter:
     connect() 呼び出し時に初めて接続する。
     """
 
-    def __init__(self, ip: str = ARM_IP, grid_json: str = _DEFAULT_GRID_JSON):
+    def __init__(self, ip: str = ARM_IP, grid_json: str = _DEFAULT_GRID_JSON, place_json: str = _DEFAULT_PLACE_JSON):
         if not HAS_OPERATOR:
             raise ImportError(
                 "XArmOperator が import できません。"
@@ -65,11 +71,15 @@ class XArmAdapter:
             )
         self._ip = ip
         self._grid_json = grid_json
+        self._place_json = place_json
         self._op: Optional[XArmOperator] = None
         self._manual_mode: bool = False
         # 4x4 grid pose map (別途ロード)
         self._grid_map: Dict[str, list] = {}
         self._load_grid_map()
+        # place pose map
+        self._place_map: Dict[str, list] = {}
+        self._load_place_map()
 
     # ==== 接続 ====
 
@@ -175,6 +185,116 @@ class XArmAdapter:
         except Exception as e:
             debug_log.error("robot", f"Pick exception: {e}")
             return False, str(e)
+
+    # ==== プレース ====
+
+    def place_at(self, place_key: str = "default") -> Tuple[bool, str]:
+        if not self._ensure():
+            return False, "not connected"
+        try:
+            debug_log.step("robot", f"Place at '{place_key}' — starting")
+            ok, msg = self._op.place_at(place_key)  # type: ignore
+            if ok:
+                debug_log.info("robot", f"Place at '{place_key}' — success")
+            else:
+                debug_log.error("robot", f"Place at '{place_key}' — failed: {msg}")
+            return ok, msg
+        except Exception as e:
+            debug_log.error("robot", f"Place exception: {e}")
+            return False, str(e)
+
+    def pick_and_place(self, x: Any, y: Any, place_key: str = "default") -> Tuple[bool, str]:
+        ok, msg = self.pick_at(x, y)
+        if not ok:
+            return False, f"Pick failed: {msg}"
+        ok, msg = self.place_at(place_key)
+        if not ok:
+            return False, f"Place failed: {msg}"
+        return True, f"pick_and_place complete: ({x},{y}) -> '{place_key}'"
+
+    def reload_place_map(self) -> Tuple[bool, str]:
+        """place_pose_map.json を再読み込み。"""
+        try:
+            self._load_place_map()
+            if self._op:
+                self._op.load_place_poses()
+            debug_log.info("robot", f"Reloaded place map: {len(self._place_map)} entries")
+            return True, f"reloaded {len(self._place_map)} place entries"
+        except Exception as e:
+            debug_log.error("robot", f"Reload place map error: {e}")
+            return False, str(e)
+
+    # ==== キャリブレーション ====
+
+    def record_grid_cell(self, col: int, row: int) -> Tuple[bool, str]:
+        """現在のロボット位置を grid_pose_map.json の指定セルに保存する。"""
+        if not self._ensure():
+            return False, "not connected"
+        arm = self._op.arm  # type: ignore
+        try:
+            code, pos = arm.get_position()
+            if code != 0:
+                return False, f"get_position failed (code={code})"
+
+            pose = list(pos[:6])
+            key = f"{col},{row}"
+
+            path = Path(self._grid_json)
+            data: Dict[str, list] = {}
+            if path.exists():
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            data[key] = pose
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            self._grid_map[key] = pose
+            if self._op:
+                self._op.pose_map[key] = pose  # type: ignore
+
+            debug_log.info("robot", f"Recorded grid cell ({col},{row}): {[round(v,2) for v in pose[:3]]}")
+            return True, f"recorded ({col},{row})"
+        except Exception as e:
+            debug_log.error("robot", f"record_grid_cell error: {e}")
+            return False, str(e)
+
+    def record_place(self, place_key: str = "default") -> Tuple[bool, str]:
+        """現在のロボット位置を place_pose_map.json の指定キーに保存する。"""
+        if not self._ensure():
+            return False, "not connected"
+        arm = self._op.arm  # type: ignore
+        try:
+            code, pos = arm.get_position()
+            if code != 0:
+                return False, f"get_position failed (code={code})"
+
+            pose = list(pos[:6])
+
+            path = Path(self._place_json)
+            data: Dict[str, list] = {}
+            if path.exists():
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            data[place_key] = pose
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            self._place_map[place_key] = pose
+            if self._op:
+                self._op.place_pose_map[place_key] = pose  # type: ignore
+
+            debug_log.info("robot", f"Recorded place '{place_key}': {[round(v,2) for v in pose[:3]]}")
+            return True, f"recorded place '{place_key}'"
+        except Exception as e:
+            debug_log.error("robot", f"record_place error: {e}")
+            return False, str(e)
+
+    def calibration_status(self) -> dict:
+        """記録済みのグリッドセルとPlaceキー一覧を返す。"""
+        return {
+            "grid_keys": list(self._grid_map.keys()),
+            "place_keys": list(self._place_map.keys()),
+        }
 
     # ==== マニュアルモード ====
 
@@ -371,6 +491,20 @@ class XArmAdapter:
             return False, str(e)
 
     # ==== internal ====
+
+    def _load_place_map(self):
+        try:
+            path = Path(self._place_json)
+            if path.exists():
+                with open(path, "r", encoding="utf-8") as f:
+                    self._place_map = json.load(f)
+                debug_log.info("robot", f"Place map loaded: {len(self._place_map)} entries from {path.name}")
+            else:
+                debug_log.warn("robot", f"Place map not found: {path}")
+                self._place_map = {}
+        except Exception as e:
+            debug_log.warn("robot", f"Place map load error: {e}")
+            self._place_map = {}
 
     def _ensure(self) -> bool:
         return self._op is not None and self._op.connected

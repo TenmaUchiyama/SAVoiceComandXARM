@@ -198,8 +198,11 @@ export interface LogEntry {
   data: unknown;
 }
 
+// ─── Language ───
+export type AppLanguage = "ja" | "en";
+
 // ─── Tab ───
-export type TabId = "unity" | "xarm" | "spatial" | "log";
+export type TabId = "unity" | "xarm" | "spatial" | "log" | "grid";
 
 // ─── Spatial Phase ───
 export type SpatialPhase =

@@ -39,7 +39,7 @@
 
     wsSpatial.send('spatial_reference_request', {
       request_id: reqId,
-      utterance: { text, language: 'ja' },
+      utterance: { text, language: appState.language },
       user_pose: {
         position: { x: 0, y: 1.5, z: 0 },
         forward: { x: 0, y: 0, z: 1 },
@@ -71,7 +71,7 @@
     wsSpatial.send('confirmation_interpretation_request', {
       request_id: reqId,
       original_request_id: appState.lastRequestId,
-      utterance: { text: reason, language: 'ja' },
+      utterance: { text: reason, language: appState.language },
       confirmed_object_id: appState.lastResult.top_candidate_id,
       action: 'pick',
     });

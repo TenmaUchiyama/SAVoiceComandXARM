@@ -1,7 +1,6 @@
 <script lang="ts">
   import { wsUnity, appState } from '$lib/appState.svelte';
-  import { generateRequestId } from '$lib/ws.svelte';
-  import { api } from '$lib/api.svelte';
+import { api } from '$lib/api.svelte';
   import StatusBadge from '../StatusBadge.svelte';
   import CalibrationPanel from './CalibrationPanel.svelte';
   import KeyPad from './KeyPad.svelte';
@@ -9,14 +8,11 @@
   import FileExplorer from './FileExplorer.svelte';
   import RawSender from './RawSender.svelte';
 
-  // Import actions
+  // Import actions — Unity から JSON を取得してサーバーに保存
   async function importGrid() {
     try {
-      wsUnity.send('pc_debug_read_json_request', {
-        request_id: generateRequestId('import_grid'),
-        relative_path: 'qr_grid_config.json',
-      });
-      appState.addToast('Import Grid request sent', 'info');
+      const res = await api.unityImportGrid();
+      appState.addToast(`Grid imported: ${res.filename}`, 'success');
     } catch (e) {
       appState.addToast(`Import Grid failed: ${e}`, 'error');
     }
@@ -24,11 +20,8 @@
 
   async function importRobot() {
     try {
-      wsUnity.send('pc_debug_read_json_request', {
-        request_id: generateRequestId('import_robot'),
-        relative_path: 'qr_robot_config.json',
-      });
-      appState.addToast('Import Robot request sent', 'info');
+      const res = await api.unityImportRobot();
+      appState.addToast(`Robot imported: ${res.filename}`, 'success');
     } catch (e) {
       appState.addToast(`Import Robot failed: ${e}`, 'error');
     }

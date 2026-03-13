@@ -21,6 +21,7 @@ public class SpeechRecognitionUIManager : MonoBehaviour
     [SerializeField] private SpeechRecognitionManager speechRecognitionManager;
     [SerializeField] private WebSocketManager webSocketManager;
     [SerializeField] private ObjectRegistry objectRegistry;
+    [SerializeField] private LanguageSettings languageSettings;
 
     [Header("UI Elements")]
     [SerializeField] private GameObject dialogUI;
@@ -36,6 +37,7 @@ public class SpeechRecognitionUIManager : MonoBehaviour
     private AudioSource audioSource;
     private bool appStateSubscribed;
     private bool speechEventsSubscribed;
+    private bool languageEventsSubscribed;
 
     // ───────────────────────── Lifecycle ─────────────────────────
 
@@ -50,6 +52,7 @@ public class SpeechRecognitionUIManager : MonoBehaviour
         ResolveReferences();
         SubscribeSpeechEvents();
         SubscribeAppStateEvents();
+        SubscribeLanguageEvents();
         RefreshUiFromCurrentState();
     }
 
@@ -63,12 +66,14 @@ public class SpeechRecognitionUIManager : MonoBehaviour
     {
         UnsubscribeSpeechEvents();
         UnsubscribeAppStateEvents();
+        UnsubscribeLanguageEvents();
     }
 
     private void OnDestroy()
     {
         UnsubscribeSpeechEvents();
         UnsubscribeAppStateEvents();
+        UnsubscribeLanguageEvents();
     }
 
     // ───────────────────────── Reference Resolution ─────────────────────────
@@ -86,6 +91,22 @@ public class SpeechRecognitionUIManager : MonoBehaviour
 
         if (objectRegistry == null)
             objectRegistry = FindObjectOfType<ObjectRegistry>();
+
+        if (languageSettings == null)
+            languageSettings = LanguageSettings.Instance;
+
+        if (languageSettings == null)
+            languageSettings = FindObjectOfType<LanguageSettings>();
+    }
+
+    public void ToggleVoiceRecognitionUI()
+    {
+        Debug.Log("ToggleVoiceRecognitionUI called");
+        if (voiceRecognitionUI != null)
+        {
+            bool visible = !voiceRecognitionUI.activeSelf;
+            voiceRecognitionUI.SetActive(visible);
+        }
     }
 
     // ───────────────────────── Event Subscription ─────────────────────────
@@ -128,13 +149,34 @@ public class SpeechRecognitionUIManager : MonoBehaviour
         appStateSubscribed = false;
     }
 
-    // ───────────────────────── Speech Event Handlers ─────────────────────────
+    private void SubscribeLanguageEvents()
+    {
+        if (languageSettings == null || languageEventsSubscribed) return;
+
+        languageSettings.OnLanguageChanged += HandleLanguageChanged;
+        languageEventsSubscribed = true;
+    }
+
+    private void UnsubscribeLanguageEvents()
+    {
+        if (languageSettings == null || !languageEventsSubscribed) return;
+
+        languageSettings.OnLanguageChanged -= HandleLanguageChanged;
+        languageEventsSubscribed = false;
+    }
+
+    // ───────────────────────── Event Handlers ─────────────────────────
+
+    private void HandleLanguageChanged(string lang)
+    {
+        RefreshUiFromCurrentState();
+    }
 
     private void HandleSpeechStartListening()
     {
         SetDialogVisible(true);
         SetVoiceRecognitionVisible(true);
-        SetRecordedText("Listening...");
+        SetRecordedText(GetText("listening"));
         ToggleRecordingIconVisibility(true);
         SetSendButtonVisible(false);
         PlaySound(onSound);
@@ -142,12 +184,10 @@ public class SpeechRecognitionUIManager : MonoBehaviour
 
     private void HandleSpeechStopListening()
     {
-        ToggleRecordingIconVisibility(false);
+        // 常時収音モードのため録音アイコンは維持
         PlaySound(offSound);
         RefreshUiFromCurrentState();
     }
-
-    // ───────────────────────── AppState Event Handlers ─────────────────────────
 
     private void HandleStateChanged(AppState state)
     {
@@ -160,7 +200,7 @@ public class SpeechRecognitionUIManager : MonoBehaviour
         {
             SetDialogVisible(true);
             SetVoiceRecognitionVisible(true);
-            string label = isFeedback ? $"確認: {text}" : text;
+            string label = isFeedback ? GetText("confirm", text) : text;
             SetRecordedText(label);
         }
 
@@ -190,19 +230,20 @@ public class SpeechRecognitionUIManager : MonoBehaviour
 
     private void RefreshUiFromState(AppState state)
     {
-        bool isListening = state == AppState.Listening;
         bool canSend = state == AppState.Idle || state == AppState.Refining || state == AppState.ShowingResult;
         bool showDialog = state != AppState.Idle || HasRecognizedText();
+        // 常時収音モード: SpeechRecognitionManager が動いていれば常にアイコンを表示
+        bool mic = speechRecognitionManager != null && speechRecognitionManager.IsListening;
 
         SetDialogVisible(showDialog);
         SetVoiceRecognitionVisible(true);
-        ToggleRecordingIconVisibility(isListening);
+        ToggleRecordingIconVisibility(mic);
 
         switch (state)
         {
             case AppState.Processing:
                 SetSendButtonVisible(false);
-                SetRecordedText("推論中...");
+                SetRecordedText(GetText("processing"));
                 return;
 
             case AppState.Executing:
@@ -210,41 +251,37 @@ public class SpeechRecognitionUIManager : MonoBehaviour
                 return;
 
             case AppState.Error:
-                SetSendButtonVisible(CanSend());
+                SetSendButtonVisible(HasRecognizedText());
                 return;
 
             default:
-                SetSendButtonVisible(canSend && CanSend());
+                SetSendButtonVisible(canSend && HasRecognizedText());
                 return;
         }
     }
 
     // ───────────────────────── Send Logic ─────────────────────────
 
-    /// <summary>
-    /// UI の送信ボタンから呼ばれる。
-    /// AppStateManager に溜まっている認識テキストをサーバーへ送信する。
-    /// </summary>
     public void SendUtteredCommand()
     {
         SetSendButtonVisible(false);
 
         if (appStateManager == null)
         {
-            SetRecordedText("AppStateManager が未設定です");
+            SetRecordedText(GetText("app_state_not_set"));
             return;
         }
 
         if (webSocketManager != null && !webSocketManager.IsConnected)
         {
-            SetRecordedText("サーバー未接続です");
+            SetRecordedText(GetText("server_not_connected"));
             return;
         }
 
         bool sent = appStateManager.SendPendingRecognizedSpeech();
         if (sent)
         {
-            SetRecordedText("送信しました");
+            SetRecordedText(GetText("sent"));
             return;
         }
 
@@ -254,34 +291,33 @@ public class SpeechRecognitionUIManager : MonoBehaviour
             List<ObjectData> objects = objectRegistry.GetAll();
             if (objects.Count == 0)
             {
-                SetRecordedText("空間オブジェクトが0件です（ObjectRegistry / SpatialObjects を確認）");
+                SetRecordedText(GetText("no_objects"));
                 return;
             }
         }
 
-        SetRecordedText("送信できませんでした");
+        SetRecordedText(GetText("failed_to_send"));
     }
 
-    // ───────────────────────── Wake / Speech Toggle ─────────────────────────
+    // ───────────────────────── Localization ─────────────────────────
 
-    /// <summary>
-    /// WakeWord 待機モードへ切り替える（音声認識 UI を非表示にする）。
-    /// </summary>
-    public void ToggleToWake()
+    private string GetText(string key, string arg0 = null)
     {
-        SetVoiceRecognitionVisible(false);
-        SetDialogVisible(false);
-        SetSendButtonVisible(false);
-        ToggleRecordingIconVisibility(false);
-    }
+        string lang = languageSettings != null ? languageSettings.CurrentLanguage : "ja";
+        bool isJa = lang == "ja";
 
-    /// <summary>
-    /// 音声認識モードへ切り替える（UI を表示して状態を反映する）。
-    /// </summary>
-    public void ToggleToSpeech()
-    {
-        SetVoiceRecognitionVisible(true);
-        RefreshUiFromCurrentState();
+        switch (key)
+        {
+            case "listening": return isJa ? "収音中..." : "Listening...";
+            case "processing": return isJa ? "推論中..." : "Processing...";
+            case "confirm": return isJa ? $"確認: {arg0}" : $"Confirm: {arg0}";
+            case "app_state_not_set": return isJa ? "AppStateManager が未設定です" : "AppStateManager is not set";
+            case "server_not_connected": return isJa ? "サーバー未接続です" : "Server not connected";
+            case "sent": return isJa ? "送信しました" : "Sent";
+            case "no_objects": return isJa ? "空間オブジェクトが0件です" : "No spatial objects found";
+            case "failed_to_send": return isJa ? "送信できませんでした" : "Failed to send";
+            default: return key;
+        }
     }
 
     // ───────────────────────── Calibration ─────────────────────────

@@ -4,7 +4,7 @@ from pathlib import Path
 from xarm.wrapper import XArmAPI
 
 class XArmOperator:
-    def __init__(self, ip: str = '192.168.1.199', json_file: str | None = None):
+    def __init__(self, ip: str = '192.168.1.199', json_file: str | None = None, place_json_file: str | None = None):
         self.ip = ip
         # ポーズファイルのパス解決
         if json_file is None:
@@ -13,20 +13,26 @@ class XArmOperator:
         else:
             self.json_file = json_file
 
-
+        if place_json_file is None:
+            current_dir = Path(__file__).resolve().parent
+            self.place_json_file = str(current_dir.parent.parent / "XArm" / "place_pose_map.json")
+        else:
+            self.place_json_file = place_json_file
 
         self.gripper_open_pos = 850
         self.gripper_close_pos = 350
-            
+
         self.arm = None
         self.pose_map = {}
+        self.place_pose_map = {}
         self.connected = False
-        
+
         # 【重要】安全高さの設定 (mm)
         # 机や障害物にぶつからない十分な高さを設定してください
-        self.SAFE_HEIGHT = 200.0 
-        
+        self.SAFE_HEIGHT = 200.0
+
         self.load_poses()
+        self.load_place_poses()
 
     def load_poses(self):
         try:
@@ -39,6 +45,18 @@ class XArmOperator:
             print(f"Loaded {len(self.pose_map)} poses.")
         except Exception as e:
             print(f"Failed to load poses: {e}")
+
+    def load_place_poses(self):
+        try:
+            place_path = Path(self.place_json_file)
+            if not place_path.is_file():
+                print(f"Warning: place pose map not found at {place_path.resolve()}")
+                return
+            with open(place_path, 'r', encoding='utf-8') as f:
+                self.place_pose_map = json.load(f)
+            print(f"Loaded {len(self.place_pose_map)} place poses.")
+        except Exception as e:
+            print(f"Failed to load place poses: {e}")
     
 
     def go_to_initial_pos(self) -> tuple[bool, str]:
@@ -258,4 +276,78 @@ class XArmOperator:
 
         except Exception as e:
             print(f"Pick Error: {e}")
+            return False, str(e)
+
+    def place_at(self, place_key: str = "default") -> tuple[bool, str]:
+        """
+        指定キーのplace座標にアイテムを置く。
+        pick_at() 完了後（グリッパー閉じ・UP_Z高さ）に呼ぶ想定。
+        【動作フロー】: UP_Zへ移動 -> 横移動(UP_Z維持) -> DOWN_Zへ下降 -> 開く -> UP_Zへ上昇
+        """
+        if not self.connected or not self.arm:
+            return False, "Robot not connected"
+
+        if place_key not in self.place_pose_map:
+            return False, f"Place key '{place_key}' not found in place_pose_map"
+
+        DOWN_Z = 179.3
+        UP_Z = 290.0
+
+        target_pose = self.place_pose_map[place_key]
+        tx, ty, _, tr, tp, tyaw = target_pose
+
+        try:
+            # 1. 安全高さへ移動
+            code, curr_pose = self.arm.get_position()
+            if code != 0:
+                raise Exception(f"Get position failed (code: {code})")
+
+            curr_x, curr_y = curr_pose[0], curr_pose[1]
+            curr_r, curr_p, curr_yaw = curr_pose[3], curr_pose[4], curr_pose[5]
+
+            print(f"Place: Move to safe Z={UP_Z}")
+            code = self.arm.set_position(
+                x=curr_x, y=curr_y, z=UP_Z,
+                roll=curr_r, pitch=curr_p, yaw=curr_yaw,
+                wait=True
+            )
+            if code != 0:
+                raise Exception(f"Move to safe height failed (code: {code})")
+
+            # 2. 空中移動
+            print(f"Place: Moving horizontally to {tx}, {ty} at Z={UP_Z}")
+            code = self.arm.set_position(x=tx, y=ty, z=UP_Z,
+                                         roll=tr, pitch=tp, yaw=tyaw, wait=True)
+            if code != 0:
+                raise Exception(f"Horizontal move failed (code: {code})")
+
+            # 3. 下降
+            print(f"Place: Moving down to Z={DOWN_Z}")
+            code = self.arm.set_position(x=tx, y=ty, z=DOWN_Z,
+                                         roll=tr, pitch=tp, yaw=tyaw, wait=True)
+            if code != 0:
+                raise Exception(f"Move down failed (code: {code})")
+
+            # 4. グリッパーを開く（置く）
+            self.arm.set_gripper_position(self.gripper_open_pos, wait=True)
+            time.sleep(0.5)
+
+            err_code = self.arm.get_err_warn_code()
+            if err_code[1][0] != 0:
+                print(f"Error detected after open: {err_code}")
+                self.arm.clean_error()
+                self.arm.motion_enable(True)
+                self.arm.set_state(0)
+
+            # 5. 上昇
+            print(f"Place: Moving up to Z={UP_Z}")
+            code = self.arm.set_position(x=tx, y=ty, z=UP_Z,
+                                         roll=tr, pitch=tp, yaw=tyaw, wait=True)
+            if code != 0:
+                raise Exception(f"Move up failed (code: {code})")
+
+            return True, "Success"
+
+        except Exception as e:
+            print(f"Place Error: {e}")
             return False, str(e)

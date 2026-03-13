@@ -134,6 +134,14 @@ export const api = {
     return get(`/api/files/grids/${encodeURIComponent(name)}`);
   },
 
+  getLatestGrid(): Promise<{ filename: string; data: any[] }> {
+    return get("/api/files/grids/latest");
+  },
+
+  saveGrid(data: any[], filename?: string): Promise<{ success: boolean; filename: string }> {
+    return post("/api/files/grids/save", filename ? { data, filename } : data);
+  },
+
   restoreGrid(name: string): Promise<{ success: boolean; message: string }> {
     return post("/api/files/grids/restore", { filename: name });
   },
@@ -150,9 +158,30 @@ export const api = {
     return post("/api/files/robots/restore", { filename: name });
   },
 
+  // — Calibration —
+  robotCalibStatus(): Promise<{ grid_keys: string[]; place_keys: string[] }> {
+    return get("/api/robot/calibration/status");
+  },
+
+  robotCalibRecordGrid(col: number, row: number): Promise<RobotActionResponse> {
+    return post("/api/robot/calibration/record_grid", { col, row });
+  },
+
+  robotCalibRecordPlace(place_key: string): Promise<RobotActionResponse> {
+    return post("/api/robot/calibration/record_place", { place_key });
+  },
+
   // — Unity commands —
   unityCalib(action: string): Promise<unknown> {
     return post("/unity/calib", { action });
+  },
+
+  unityImportGrid(relPath = "qr_grid_config.json"): Promise<{ success: boolean; filename: string; kind: string }> {
+    return post("/unity/import", { relative_path: relPath, kind: "grid" });
+  },
+
+  unityImportRobot(relPath = "qr_robot_config.json"): Promise<{ success: boolean; filename: string; kind: string }> {
+    return post("/unity/import", { relative_path: relPath, kind: "robot" });
   },
 
   // — Debug logs —

@@ -29,6 +29,9 @@ namespace SA_XARM.SpatialRef.State
         [SerializeField] private string language = "ja";
         [SerializeField] private bool autoSubscribeOnEnable = true;
 
+        public string Language => language;
+        private bool IsJapanese => language == "ja";
+
         public AppState CurrentState { get; private set; } = AppState.Idle;
 
         public event Action<AppState> OnStateChanged;
@@ -71,6 +74,18 @@ namespace SA_XARM.SpatialRef.State
                 webSocketManager.On<ServerErrorMessage>("server_error", OnServerErrorReceived);
                 webSocketManager.On<ProcessingStatus>("processing_status", OnProcessingStatusReceived);
             }
+
+            // LanguageSettings からの言語変更を購読
+            if (LanguageSettings.Instance != null)
+            {
+                LanguageSettings.Instance.OnLanguageChanged += OnLanguageChanged;
+            }
+        }
+
+        private void OnLanguageChanged(string newLanguage)
+        {
+            language = newLanguage;
+            Log($"Language updated to: {newLanguage}", "cyan");
         }
 
         public void Unsubscribe()
@@ -89,6 +104,11 @@ namespace SA_XARM.SpatialRef.State
                 webSocketManager.Off("error");
                 webSocketManager.Off("server_error");
                 webSocketManager.Off("processing_status");
+            }
+
+            if (LanguageSettings.Instance != null)
+            {
+                LanguageSettings.Instance.OnLanguageChanged -= OnLanguageChanged;
             }
         }
 
@@ -146,13 +166,13 @@ namespace SA_XARM.SpatialRef.State
 
             if (webSocketManager == null || !webSocketManager.IsConnected)
             {
-                SetError("サーバー未接続です");
+                SetError(IsJapanese ? "サーバー未接続です" : "Server not connected");
                 return false;
             }
 
             if (spatialContextProvider == null)
             {
-                SetError("SpatialContextProvider が未設定です");
+                SetError(IsJapanese ? "SpatialContextProvider が未設定です" : "SpatialContextProvider not assigned");
                 return false;
             }
 
@@ -161,14 +181,16 @@ namespace SA_XARM.SpatialRef.State
             int objectCount = request?.objects?.Count ?? 0;
             if (objectCount <= 0)
             {
-                SetError("空間オブジェクトが0件のため送信を中止しました（ObjectRegistry / SpatialObjects 配置を確認）");
+                SetError(IsJapanese
+                    ? "空間オブジェクトが0件のため送信を中止しました"
+                    : "No spatial objects found, request cancelled");
                 Log("Request blocked: objects=0", "red");
                 return false;
             }
 
             _lastRequestId = request.request_id;
 
-            SetState(AppState.Processing, "推論中...");
+            SetState(AppState.Processing, IsJapanese ? "推論中..." : "Processing...");
             webSocketManager.Send("spatial_reference_request", request);
             Log($"Request sent: {request.request_id}, objects={objectCount}", "cyan");
             return true;
@@ -178,7 +200,7 @@ namespace SA_XARM.SpatialRef.State
         {
             if (result == null)
             {
-                SetError("結果メッセージの解析に失敗しました");
+                SetError(IsJapanese ? "結果メッセージの解析に失敗しました" : "Failed to parse result");
                 return;
             }
 
@@ -197,9 +219,11 @@ namespace SA_XARM.SpatialRef.State
 
             // ユーザーへの確認案内
             Debug.Log($"[Agent] 「{_lastTargetObjectId}」を選択しました。確認してください。");
-            UserFeedbackDisplay.Instance?.ShowConfirmPrompt($"「{_lastTargetObjectId}」でよいですか？\n「はい」で実行 / 「違う」で再選択");
+            UserFeedbackDisplay.Instance?.ShowConfirmPrompt(IsJapanese
+                ? $"「{_lastTargetObjectId}」でよいですか？\n「はい」で実行 / 「違う」で再選択"
+                : $"Is \"{_lastTargetObjectId}\" correct?\nSay \"Yes\" to execute / \"No\" to reselect");
 
-            SetState(AppState.ShowingResult, $"候補: {_lastTargetObjectId}");
+            SetState(AppState.ShowingResult, IsJapanese ? $"候補: {_lastTargetObjectId}" : $"Candidate: {_lastTargetObjectId}");
             HighlightTargetForConfirmation(_lastTargetObjectId);
             OnResultUpdated?.Invoke(result);
             Log($"Result received: selected={_lastTargetObjectId}", "green");
@@ -209,7 +233,7 @@ namespace SA_XARM.SpatialRef.State
         {
             if (string.IsNullOrWhiteSpace(feedbackUtterance))
             {
-                SetError("フィードバック発話が空です");
+                SetError(IsJapanese ? "フィードバック発話が空です" : "Feedback utterance is empty");
                 return false;
             }
 
@@ -220,13 +244,13 @@ namespace SA_XARM.SpatialRef.State
 
             if (webSocketManager == null || !webSocketManager.IsConnected)
             {
-                SetError("サーバー未接続です");
+                SetError(IsJapanese ? "サーバー未接続です" : "Server not connected");
                 return false;
             }
 
             if (spatialContextProvider == null)
             {
-                SetError("SpatialContextProvider が未設定です");
+                SetError(IsJapanese ? "SpatialContextProvider が未設定です" : "SpatialContextProvider not assigned");
                 return false;
             }
 
@@ -244,7 +268,7 @@ namespace SA_XARM.SpatialRef.State
                 user_pose = spatialContextProvider.GetUserPose()
             };
 
-            SetState(AppState.Processing, "フィードバック解釈中...");
+            SetState(AppState.Processing, IsJapanese ? "フィードバック解釈中..." : "Interpreting feedback...");
             webSocketManager.Send("confirmation_interpretation_request", msg);
             Log($"Feedback sent: utterance={feedbackUtterance}, object={objectId}", "white");
             return true;
@@ -254,7 +278,7 @@ namespace SA_XARM.SpatialRef.State
         {
             if (cmd == null)
             {
-                SetError("robot_command の解析に失敗しました");
+                SetError(IsJapanese ? "robot_command の解析に失敗しました" : "Failed to parse robot_command");
                 return;
             }
 
@@ -263,12 +287,12 @@ namespace SA_XARM.SpatialRef.State
 
             if (completed)
             {
-                UserFeedbackDisplay.Instance?.ShowStatus("実行完了しました");
-                SetState(AppState.Idle, "完了");
+                UserFeedbackDisplay.Instance?.ShowStatus(IsJapanese ? "実行完了しました" : "Execution complete");
+                SetState(AppState.Idle, IsJapanese ? "完了" : "Done");
             }
             else
             {
-                SetState(AppState.Executing, "ロボットが動いています...");
+                SetState(AppState.Executing, IsJapanese ? "ロボットが動いています..." : "Robot moving...");
             }
 
             string actionName = string.IsNullOrWhiteSpace(cmd.action) ? cmd.command : cmd.action;
@@ -278,7 +302,7 @@ namespace SA_XARM.SpatialRef.State
 
         public void CancelToIdle()
         {
-            SetState(AppState.Idle, "キャンセル");
+            SetState(AppState.Idle, IsJapanese ? "キャンセル" : "Cancelled");
         }
 
         private void OnProcessingStatusReceived(ProcessingStatus status)
@@ -292,12 +316,12 @@ namespace SA_XARM.SpatialRef.State
         {
             if (error == null)
             {
-                SetError("不明なサーバーエラー");
+                SetError(IsJapanese ? "不明なサーバーエラー" : "Unknown server error");
                 return;
             }
 
             string message = string.IsNullOrWhiteSpace(error.message)
-                ? $"サーバーエラー: {error.code}"
+                ? (IsJapanese ? $"サーバーエラー: {error.code}" : $"Server error: {error.code}")
                 : error.message;
 
             SetError(message);
@@ -307,7 +331,7 @@ namespace SA_XARM.SpatialRef.State
         {
             if (CurrentState == AppState.Idle)
             {
-                SetState(AppState.Listening, "聞いています...");
+                SetState(AppState.Listening, IsJapanese ? "聞いています..." : "Listening...");
             }
         }
 
@@ -315,7 +339,7 @@ namespace SA_XARM.SpatialRef.State
         {
             if (CurrentState == AppState.Listening)
             {
-                SetState(AppState.Idle, "待機中");
+                SetState(AppState.Idle, IsJapanese ? "待機中" : "Idle");
             }
         }
 
@@ -344,7 +368,7 @@ namespace SA_XARM.SpatialRef.State
                     UserFeedbackDisplay.Instance?.Clear();
                     break;
                 case AppState.Listening:
-                    UserFeedbackDisplay.Instance?.ShowStatus("聞いています...");
+                    UserFeedbackDisplay.Instance?.ShowStatus(IsJapanese ? "聞いています..." : "Listening...");
                     break;
                 case AppState.Processing:
                     UserFeedbackDisplay.Instance?.ShowStatus(statusMessage);
@@ -379,7 +403,7 @@ namespace SA_XARM.SpatialRef.State
             Log($"Pending speech queued ({(isFeedback ? "confirmation" : "initial")}): {text}", "white");
         }
 
-        private void ClearPendingSpeech()
+        public void ClearPendingSpeech()
         {
             _pendingRecognizedText = null;
             _pendingIsFeedback = false;

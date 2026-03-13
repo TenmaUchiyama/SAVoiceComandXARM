@@ -11,14 +11,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, Set
 
 from fastapi import WebSocket
+from loguru import logger
 
-log = logging.getLogger("unified_debug")
+# loguru は debug モジュールですでに初期化されている想定
+log = logger.bind(source="HUB")
 
 
 # ===================================================================
@@ -126,11 +127,11 @@ class WSHub:
     # --- connection management ---
     def add(self, channel: str, ws: WebSocket):
         self._ch(channel).add(ws)
-        log.info("WS [%s] +1 (total=%d)", channel, len(self._ch(channel)))
+        log.info(f"WS [{channel}] +1 (total={len(self._ch(channel))})")
 
     def remove(self, channel: str, ws: WebSocket):
         self._ch(channel).discard(ws)
-        log.info("WS [%s] -1 (total=%d)", channel, len(self._ch(channel)))
+        log.info(f"WS [{channel}] -1 (total={len(self._ch(channel))})")
 
     def _ch(self, channel: str) -> Set[WebSocket]:
         return {
