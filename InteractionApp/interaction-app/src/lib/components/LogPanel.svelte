@@ -192,4 +192,42 @@
     font-style: italic;
     padding: 40px 0;
   }
+
+  @media (max-width: 1024px) {
+    .filters {
+      flex-wrap: wrap;
+    }
+    .filters input {
+      width: 160px;
+    }
+    .log-entry {
+      grid-template-columns: 80px 18px 50px 1fr;
+      gap: 6px;
+      font-size: 0.75rem;
+    }
+    .data {
+      margin-left: 0;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .toolbar {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .log-entry {
+      grid-template-columns: 70px 16px 1fr;
+      gap: 4px;
+      font-size: 0.7rem;
+    }
+    .source {
+      display: none;
+    }
+    .data {
+      margin-left: 0;
+    }
+    .filters input {
+      width: 100%;
+    }
+  }
 </style>

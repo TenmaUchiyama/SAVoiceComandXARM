@@ -295,4 +295,38 @@
     border-radius: 4px;
     color: #e5e7eb;
   }
+
+  @media (max-width: 1024px) {
+    .toolbar {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .color-palette {
+      gap: 4px;
+    }
+    .color-btn {
+      padding: 4px 8px;
+      font-size: 0.75rem;
+    }
+    .color-btn .label {
+      font-size: 0.7rem;
+    }
+    .grid-container {
+      max-width: 100%;
+      gap: 8px;
+      padding: 12px;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .color-btn .label {
+      display: none;
+    }
+    .color-btn {
+      padding: 6px;
+    }
+    .actions {
+      flex-wrap: wrap;
+    }
+  }
 </style>

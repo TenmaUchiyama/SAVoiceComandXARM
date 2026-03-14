@@ -68,6 +68,12 @@
     gap: 16px;
   }
 
+  @media (max-width: 1024px) {
+    .grid-2col {
+      gap: 12px;
+    }
+  }
+
   @media (max-width: 768px) {
     .grid-2col {
       grid-template-columns: 1fr;

@@ -92,4 +92,14 @@
   .btn.reject:hover {
     background: #7f1d1d;
   }
+
+  @media (max-width: 1024px) {
+    .reject-group {
+      flex-direction: column;
+    }
+    .btn {
+      padding: 10px 16px;
+      font-size: 0.8rem;
+    }
+  }
 </style>

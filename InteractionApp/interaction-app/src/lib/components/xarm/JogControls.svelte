@@ -344,4 +344,27 @@
     color: #38bdf8;
     margin-left: 4px;
   }
+
+  @media (max-width: 1024px) {
+    .jog-grid {
+      grid-template-columns: 48px 48px 48px 12px 48px;
+      grid-template-rows: 44px 44px 44px;
+    }
+    .jog-btn {
+      font-size: 0.75rem;
+    }
+    .distance-btns {
+      flex-wrap: wrap;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .jog-grid {
+      grid-template-columns: 42px 42px 42px 10px 42px;
+      grid-template-rows: 40px 40px 40px;
+    }
+    .jog-btn {
+      font-size: 0.7rem;
+    }
+  }
 </style>

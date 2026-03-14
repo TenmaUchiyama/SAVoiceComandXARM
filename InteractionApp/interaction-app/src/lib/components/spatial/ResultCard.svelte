@@ -125,4 +125,28 @@
     color: #94a3b8;
     max-width: 300px;
   }
+
+  @media (max-width: 1024px) {
+    .reason-cell {
+      max-width: 200px;
+    }
+    .main-result .value,
+    .confidence .value {
+      font-size: 1rem;
+    }
+    table {
+      font-size: 0.75rem;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .top-section {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .reason-cell {
+      max-width: 150px;
+    }
+  }
 </style>

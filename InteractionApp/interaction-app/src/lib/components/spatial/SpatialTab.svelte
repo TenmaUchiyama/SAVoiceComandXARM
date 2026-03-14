@@ -113,6 +113,15 @@
     <span class="phase-badge phase-{appState.spatialPhase}">
       {phaseLabels[appState.spatialPhase] ?? appState.spatialPhase}
     </span>
+    {#if appState.spatialPhase !== 'idle'}
+      <button class="btn-reset" onclick={() => {
+        appState.spatialPhase = 'idle';
+        appState.lastResult = null;
+        appState.addToast('Phase reset to idle', 'info');
+      }}>
+        Reset
+      </button>
+    {/if}
   </div>
 
   <!-- Utterance input -->
@@ -220,5 +229,19 @@
   .status-msg {
     color: #94a3b8;
     font-size: 0.8rem;
+  }
+  .btn-reset {
+    padding: 4px 12px;
+    border: 1px solid #7f1d1d;
+    border-radius: 6px;
+    background: #3b1c1c;
+    color: #f87171;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-reset:hover {
+    background: #7f1d1d;
   }
 </style>

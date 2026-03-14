@@ -269,4 +269,14 @@
     color: #f59e0b;
     flex-basis: 100%;
   }
+
+  @media (max-width: 1024px) {
+    .btn {
+      padding: 8px 14px;
+      font-size: 0.8rem;
+    }
+    .btn-group {
+      gap: 6px;
+    }
+  }
 </style>

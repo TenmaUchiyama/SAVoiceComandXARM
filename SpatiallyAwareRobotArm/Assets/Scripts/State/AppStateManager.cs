@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using SA_XARM.Network.Websocket;
 using SA_XARM.SpatialRef.Data;
 using SA_XARM.SpatialRef.Spatial;
@@ -284,11 +285,19 @@ namespace SA_XARM.SpatialRef.State
 
             string status = (cmd.status ?? string.Empty).Trim().ToLowerInvariant();
             bool completed = status == "done" || status == "completed" || status == "finished" || status == "success";
+            bool failed = status == "failed" || status == "error" || status == "aborted";
 
             if (completed)
             {
                 UserFeedbackDisplay.Instance?.ShowStatus(IsJapanese ? "実行完了しました" : "Execution complete");
                 SetState(AppState.Idle, IsJapanese ? "完了" : "Done");
+            }
+            else if (failed)
+            {
+                string errorMsg = string.IsNullOrWhiteSpace(cmd.message)
+                    ? (IsJapanese ? "ロボット実行に失敗しました" : "Robot execution failed")
+                    : cmd.message;
+                SetError(errorMsg);
             }
             else
             {
@@ -343,10 +352,27 @@ namespace SA_XARM.SpatialRef.State
             }
         }
 
+        private Coroutine _errorRecoveryCoroutine;
+
         private void SetError(string message)
         {
             SetState(AppState.Error, message);
             Log(message, "red");
+
+            // エラー表示後、自動的にIdleに戻す
+            if (_errorRecoveryCoroutine != null)
+                StopCoroutine(_errorRecoveryCoroutine);
+            _errorRecoveryCoroutine = StartCoroutine(RecoverFromErrorAfterDelay(3f));
+        }
+
+        private IEnumerator RecoverFromErrorAfterDelay(float seconds)
+        {
+            yield return new WaitForSeconds(seconds);
+            if (CurrentState == AppState.Error)
+            {
+                SetState(AppState.Idle, IsJapanese ? "待機中" : "Idle");
+            }
+            _errorRecoveryCoroutine = null;
         }
 
         private void SetState(AppState next, string statusMessage)

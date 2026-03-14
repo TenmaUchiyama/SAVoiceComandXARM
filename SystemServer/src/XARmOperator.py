@@ -186,6 +186,41 @@ class XArmOperator:
         except Exception as e:
             return False, str(e)
 
+    def _ensure_ready(self):
+        """エラー/警告状態をクリアしてアームをReady状態にする"""
+        err_code = self.arm.get_err_warn_code()
+        if err_code[1][0] != 0:
+            print(f"[_ensure_ready] Clearing error: {err_code}")
+            self.arm.clean_error()
+            self.arm.clean_warn()
+            self.arm.motion_enable(True)
+            self.arm.set_mode(0)
+            self.arm.set_state(0)
+            time.sleep(0.5)
+
+        state = self.arm.get_state()
+        if state[1] != 0:
+            print(f"[_ensure_ready] Arm state={state[1]}, resetting to 0")
+            self.arm.set_state(0)
+            time.sleep(0.3)
+
+    def _move_with_retry(self, *, x, y, z, roll, pitch, yaw, max_retries=2):
+        """set_position を実行し、-2 (not ready) の場合はクリアしてリトライする"""
+        for attempt in range(max_retries + 1):
+            code = self.arm.set_position(
+                x=x, y=y, z=z,
+                roll=roll, pitch=pitch, yaw=yaw,
+                wait=True,
+            )
+            if code == 0:
+                return 0
+            if code == -2 and attempt < max_retries:
+                print(f"[_move_with_retry] code={code}, attempt {attempt+1}/{max_retries}, clearing and retrying...")
+                self._ensure_ready()
+            else:
+                return code
+        return code
+
     def pick_at(self, x: int, y: int) -> tuple[bool, str]:
         """
         指定座標(x,y)のアイテムをピックする。
@@ -208,20 +243,24 @@ class XArmOperator:
 
         try:
             # -------------------------------------------------
+            # 0. エラー状態のクリア & リトライ準備
+            # -------------------------------------------------
+            self._ensure_ready()
+
+            # -------------------------------------------------
             # 1. 安全高さへ移動 (Safety Lift) -> UP_Zへ
             # -------------------------------------------------
             code, curr_pose = self.arm.get_position()
             if code != 0: raise Exception(f"Get position failed (code: {code})")
-            
+
             curr_x, curr_y = curr_pose[0], curr_pose[1]
             curr_r, curr_p, curr_yaw = curr_pose[3], curr_pose[4], curr_pose[5]
 
             # 余計な分岐を入れず、必ず安全高さUP_Zへ揃える
             print(f"Move to safe Z={UP_Z}")
-            code = self.arm.set_position(
+            code = self._move_with_retry(
                 x=curr_x, y=curr_y, z=UP_Z,
                 roll=curr_r, pitch=curr_p, yaw=curr_yaw,
-                wait=True
             )
             if code != 0: raise Exception(f"Move to safe height failed (code: {code})")
 
@@ -297,6 +336,9 @@ class XArmOperator:
         tx, ty, _, tr, tp, tyaw = target_pose
 
         try:
+            # 0. エラー状態のクリア
+            self._ensure_ready()
+
             # 1. 安全高さへ移動
             code, curr_pose = self.arm.get_position()
             if code != 0:
@@ -306,10 +348,9 @@ class XArmOperator:
             curr_r, curr_p, curr_yaw = curr_pose[3], curr_pose[4], curr_pose[5]
 
             print(f"Place: Move to safe Z={UP_Z}")
-            code = self.arm.set_position(
+            code = self._move_with_retry(
                 x=curr_x, y=curr_y, z=UP_Z,
                 roll=curr_r, pitch=curr_p, yaw=curr_yaw,
-                wait=True
             )
             if code != 0:
                 raise Exception(f"Move to safe height failed (code: {code})")

@@ -264,6 +264,15 @@
   .cell:disabled {
     cursor: not-allowed;
   }
+  @media (max-width: 1024px) {
+    .grid {
+      --cell-size: 40px;
+    }
+    .cell {
+      font-size: 0.6rem;
+    }
+  }
+
   @media (max-width: 768px) {
     .grid {
       --cell-size: 38px;

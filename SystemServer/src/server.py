@@ -114,6 +114,16 @@ def _get_session(request_id: str) -> Optional[SessionContext]:
     return context
 
 
+def _cleanup_session_on_error(message: dict):
+    """エラー発生時にセッションを削除して状態をリセットする"""
+    request_id = message.get("request_id")
+    original_request_id = message.get("original_request_id")
+    for key in (original_request_id, request_id):
+        if key and key in SESSION_STORE:
+            SESSION_STORE.pop(key, None)
+            print(f"【Server】Session cleaned up on error: {key}")
+
+
 def _parse_json_message(payload: str) -> dict:
     try:
         return json.loads(payload)
@@ -343,6 +353,7 @@ async def _route_spatial_message(message: dict, send_status=None) -> Any:
     except ValueError as exc:
         print(f"【Server】Spatial ValueError: {exc}")
         traceback.print_exc()
+        _cleanup_session_on_error(message)
         msg = str(exc)
         error_code = _extract_error_code(msg, default="E004")
         error_message = msg.split(":", 1)[1].strip() if ":" in msg else msg
@@ -354,6 +365,7 @@ async def _route_spatial_message(message: dict, send_status=None) -> Any:
         }
     except asyncio.TimeoutError as exc:
         print(f"【Server】Spatial TimeoutError: {exc}")
+        _cleanup_session_on_error(message)
         return {
             "type": "error",
             "request_id": message.get("request_id"),
@@ -363,6 +375,7 @@ async def _route_spatial_message(message: dict, send_status=None) -> Any:
     except Exception as exc:
         print(f"【Server】Spatial Exception ({type(exc).__name__}): {exc}")
         traceback.print_exc()
+        _cleanup_session_on_error(message)
         return {
             "type": "error",
             "request_id": message.get("request_id"),
@@ -465,8 +478,9 @@ async def _process_refinement_request(request_data: RefinementRequest) -> dict:
     except Exception:
         ranked_candidates = apply_fallback_ranking(request_data.utterance.text, features, request_data.previous_target)
 
+    # original_request_id のキーで上書きして、次の確認が最新データを参照できるようにする
     _store_session(SessionContext(
-        request_id=request_data.request_id,
+        request_id=request_data.original_request_id,
         utterance=request_data.utterance.text,
         reference_frame=reference_frame,
         objects=previous.objects,
@@ -523,8 +537,10 @@ async def _process_confirmation_request(request_data: ConfirmationRequest) -> Li
             ranked_candidates = apply_fallback_ranking(session.utterance, features, rejected_id)
 
         # セッション更新（次の confirmation に備える）
+        # original_request_id のキーで上書きすることで、
+        # 次の confirmation が最新の ranked_candidates を参照できるようにする
         _store_session(SessionContext(
-            request_id=request_data.request_id,
+            request_id=session_request_id,
             utterance=session.utterance,
             reference_frame=session.reference_frame,
             objects=session.objects,

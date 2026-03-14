@@ -51,4 +51,25 @@
     color: #38bdf8;
     box-shadow: inset 0 -2px 0 #38bdf8;
   }
+
+  @media (max-width: 1024px) {
+    .tab-bar {
+      gap: 1px;
+      padding: 4px 4px 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .tab-btn {
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      flex-shrink: 0;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .tab-btn {
+      padding: 6px 10px;
+      font-size: 0.75rem;
+    }
+  }
 </style>

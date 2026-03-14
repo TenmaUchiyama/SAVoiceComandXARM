@@ -312,4 +312,56 @@
     padding: 16px;
     overflow-y: auto;
   }
+
+  /* --- Tablet portrait (768px–1024px) --- */
+  @media (max-width: 1024px) {
+    header {
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 12px;
+    }
+    .header-left {
+      gap: 12px;
+      flex: 1 1 100%;
+    }
+    .header-right {
+      flex-wrap: wrap;
+      gap: 6px;
+      flex: 1 1 100%;
+      justify-content: flex-end;
+    }
+    .settings-bar {
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 12px;
+    }
+    .settings-bar label {
+      width: 180px;
+    }
+    .toast-container {
+      max-width: 300px;
+      right: 12px;
+    }
+    main {
+      padding: 12px;
+    }
+  }
+
+  /* --- Mobile (≤768px) --- */
+  @media (max-width: 768px) {
+    .header-left {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
+    .header-right {
+      justify-content: flex-start;
+    }
+    .settings-bar label {
+      width: 100%;
+    }
+    main {
+      padding: 8px;
+    }
+  }
 </style>
