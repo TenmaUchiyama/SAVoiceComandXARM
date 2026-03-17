@@ -14,7 +14,7 @@ namespace SA_XARM.SpatialRef.Data
     public class Utterance
     {
         public string text;
-        public string language = "ja";
+        public string language = "en";
     }
 
     [Serializable]

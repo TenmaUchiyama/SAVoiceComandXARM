@@ -91,9 +91,9 @@
     if (cmd.status === 'completed' || cmd.status === 'failed') {
       appState.spatialPhase = 'idle';
       if (cmd.status === 'completed') {
-        appState.addToast(`Robot command completed: ${cmd.action} → ${cmd.target_object_id}`, 'success');
+        appState.addToast(cmd.message || '完了しました！', 'success');
       } else {
-        appState.addToast(`Robot command failed: ${cmd.message}`, 'error');
+        appState.addToast(`うまくいきませんでした… ${cmd.message}`, 'error');
       }
     } else {
       appState.spatialPhase = 'executing';
@@ -103,7 +103,7 @@
   wsSpatial.on('error', (data: unknown) => {
     const err = data as { code?: string; message: string };
     appState.spatialPhase = 'idle';
-    appState.addToast(`Error ${err.code ?? ''}: ${err.message}`, 'error');
+    appState.addToast(`すみません、エラーが発生しました: ${err.message}`, 'error');
   });
 </script>
 
@@ -135,10 +135,14 @@
         {:else if robotCommandStatus.status === 'completed'}✅
         {:else}❌{/if}
       </span>
-      Robot: {robotCommandStatus.action} → {robotCommandStatus.target_object_id}
-      ({robotCommandStatus.status})
       {#if robotCommandStatus.message}
-        <span class="status-msg">— {robotCommandStatus.message}</span>
+        {robotCommandStatus.message}
+      {:else if robotCommandStatus.status === 'started'}
+        今から取りに行きますね…
+      {:else if robotCommandStatus.status === 'completed'}
+        完了しました！
+      {:else}
+        うまくいきませんでした…
       {/if}
     </div>
   {/if}

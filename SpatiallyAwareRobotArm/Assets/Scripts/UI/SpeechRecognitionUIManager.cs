@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using SA_XARM.Network.Request;
 using SA_XARM.Network.Websocket;
 using SA_XARM.SpatialRef.Data;
 using SA_XARM.SpatialRef.Spatial;
@@ -7,27 +6,33 @@ using SA_XARM.SpatialRef.State;
 using SA_XARM.SpeechRecognizer;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 /// <summary>
-/// 音声認識関連の UI を管理する。
-/// AppStateManager のイベントを購読し、状態に応じて Dialog / 録音アイコン / 送信ボタンを切り替える。
-/// SpeechRecognitionManager で認識を行い、
-/// AppStateManager 経由で WebSocket サーバーへリクエストを送信する。
+/// HMD 上のメイン UI パネルを管理するシングルトン。
+/// 4 つの TextMeshProUGUI で役割ごとに表示を分離する。
+///   - UserSpeech   : ユーザーが喋った認識テキスト
+///   - AgentMessage  : LLM Agent の応答（選択理由など）
+///   - SystemStatus  : 処理ステージ表示 (Processing..., Found it! 等)
+///   - UserPrompt    : ユーザーへの誘導 (Is "obj_15" correct? 等)
 /// </summary>
 public class SpeechRecognitionUIManager : MonoBehaviour
 {
+    public static SpeechRecognitionUIManager Instance { get; private set; }
+
     [Header("Core References")]
     [SerializeField] private AppStateManager appStateManager;
     [SerializeField] private SpeechRecognitionManager speechRecognitionManager;
     [SerializeField] private WebSocketManager webSocketManager;
     [SerializeField] private ObjectRegistry objectRegistry;
-    [SerializeField] private LanguageSettings languageSettings;
 
-    [Header("UI Elements")]
-    [SerializeField] private GameObject dialogUI;
-    [SerializeField] private GameObject voiceRecognitionUI;
-    [SerializeField] private GameObject recordingIcon;
-    [SerializeField] private TextMeshProUGUI recordedText;
+    [Header("Display Texts")]
+    [SerializeField] private TextMeshProUGUI userSpeechText;
+    [SerializeField] private TextMeshProUGUI agentMessageText;
+    [SerializeField] private TextMeshProUGUI systemStatusText;
+    [SerializeField] private TextMeshProUGUI userPromptText;
+
+    [Header("Send Button")]
     [SerializeField] private GameObject sendButton;
 
     [Header("Audio")]
@@ -37,12 +42,21 @@ public class SpeechRecognitionUIManager : MonoBehaviour
     private AudioSource audioSource;
     private bool appStateSubscribed;
     private bool speechEventsSubscribed;
-    private bool languageEventsSubscribed;
 
     // ───────────────────────── Lifecycle ─────────────────────────
 
     private void Awake()
     {
+        if (Instance == null)
+        {
+            Instance = this;
+        }
+        else
+        {
+            Destroy(gameObject);
+            return;
+        }
+
         ResolveReferences();
         audioSource = GetComponent<AudioSource>();
     }
@@ -52,28 +66,25 @@ public class SpeechRecognitionUIManager : MonoBehaviour
         ResolveReferences();
         SubscribeSpeechEvents();
         SubscribeAppStateEvents();
-        SubscribeLanguageEvents();
         RefreshUiFromCurrentState();
     }
 
     private void Start()
     {
         RefreshUiFromCurrentState();
-        Log("[SpeechRecognitionUIManager] Start");
     }
 
     private void OnDisable()
     {
         UnsubscribeSpeechEvents();
         UnsubscribeAppStateEvents();
-        UnsubscribeLanguageEvents();
     }
 
     private void OnDestroy()
     {
+        if (Instance == this) Instance = null;
         UnsubscribeSpeechEvents();
         UnsubscribeAppStateEvents();
-        UnsubscribeLanguageEvents();
     }
 
     // ───────────────────────── Reference Resolution ─────────────────────────
@@ -91,22 +102,54 @@ public class SpeechRecognitionUIManager : MonoBehaviour
 
         if (objectRegistry == null)
             objectRegistry = FindObjectOfType<ObjectRegistry>();
-
-        if (languageSettings == null)
-            languageSettings = LanguageSettings.Instance;
-
-        if (languageSettings == null)
-            languageSettings = FindObjectOfType<LanguageSettings>();
     }
 
-    public void ToggleVoiceRecognitionUI()
+    // ───────────────────────── Public Display API ─────────────────────────
+
+    /// <summary>ユーザーの発話テキストを表示</summary>
+    public void ShowUserSpeech(string text)
     {
-        Debug.Log("ToggleVoiceRecognitionUI called");
-        if (voiceRecognitionUI != null)
-        {
-            bool visible = !voiceRecognitionUI.activeSelf;
-            voiceRecognitionUI.SetActive(visible);
-        }
+        SetText(userSpeechText, text);
+    }
+
+    /// <summary>LLM Agent の応答を表示（選択理由等）</summary>
+    public void ShowAgentMessage(string message)
+    {
+        SetText(agentMessageText, message);
+    }
+
+    /// <summary>システム処理状況を表示（Processing..., Found it! 等）</summary>
+    public void ShowSystemStatus(string message)
+    {
+        SetText(systemStatusText, message);
+    }
+
+    /// <summary>ユーザーへの誘導を表示（確認プロンプト等）</summary>
+    public void ShowUserPrompt(string message)
+    {
+        SetText(userPromptText, message);
+    }
+
+    /// <summary>エラーメッセージをシステムステータスに表示</summary>
+    public void ShowError(string message)
+    {
+        SetText(systemStatusText, message);
+    }
+
+    /// <summary>全テキストをクリア</summary>
+    public void ClearAll()
+    {
+        ClearText(userSpeechText);
+        ClearText(agentMessageText);
+        ClearText(systemStatusText);
+        ClearText(userPromptText);
+    }
+
+    /// <summary>Agent + Prompt をクリア（新しいリクエスト開始時）</summary>
+    public void ClearResultTexts()
+    {
+        ClearText(agentMessageText);
+        ClearText(userPromptText);
     }
 
     // ───────────────────────── Event Subscription ─────────────────────────
@@ -149,42 +192,17 @@ public class SpeechRecognitionUIManager : MonoBehaviour
         appStateSubscribed = false;
     }
 
-    private void SubscribeLanguageEvents()
-    {
-        if (languageSettings == null || languageEventsSubscribed) return;
-
-        languageSettings.OnLanguageChanged += HandleLanguageChanged;
-        languageEventsSubscribed = true;
-    }
-
-    private void UnsubscribeLanguageEvents()
-    {
-        if (languageSettings == null || !languageEventsSubscribed) return;
-
-        languageSettings.OnLanguageChanged -= HandleLanguageChanged;
-        languageEventsSubscribed = false;
-    }
-
     // ───────────────────────── Event Handlers ─────────────────────────
-
-    private void HandleLanguageChanged(string lang)
-    {
-        RefreshUiFromCurrentState();
-    }
 
     private void HandleSpeechStartListening()
     {
-        SetDialogVisible(true);
-        SetVoiceRecognitionVisible(true);
-        SetRecordedText(GetText("listening"));
-        ToggleRecordingIconVisibility(true);
+        ShowSystemStatus("Listening...");
         SetSendButtonVisible(false);
         PlaySound(onSound);
     }
 
     private void HandleSpeechStopListening()
     {
-        // 常時収音モードのため録音アイコンは維持
         PlaySound(offSound);
         RefreshUiFromCurrentState();
     }
@@ -198,10 +216,7 @@ public class SpeechRecognitionUIManager : MonoBehaviour
     {
         if (hasPending)
         {
-            SetDialogVisible(true);
-            SetVoiceRecognitionVisible(true);
-            string label = isFeedback ? GetText("confirm", text) : text;
-            SetRecordedText(label);
+            ShowUserSpeech(text);
         }
 
         SetSendButtonVisible(hasPending);
@@ -211,7 +226,7 @@ public class SpeechRecognitionUIManager : MonoBehaviour
     {
         if (!string.IsNullOrWhiteSpace(status))
         {
-            SetRecordedText(status);
+            ShowSystemStatus(status);
         }
     }
 
@@ -219,31 +234,22 @@ public class SpeechRecognitionUIManager : MonoBehaviour
 
     private void RefreshUiFromCurrentState()
     {
-        if (appStateManager == null)
-        {
-            Log("[SpeechRecognitionUIManager] AppStateManager が見つかりません", "red");
-            return;
-        }
-
+        if (appStateManager == null) return;
         RefreshUiFromState(appStateManager.CurrentState);
     }
 
     private void RefreshUiFromState(AppState state)
     {
         bool canSend = state == AppState.Idle || state == AppState.Refining || state == AppState.ShowingResult;
-        bool showDialog = state != AppState.Idle || HasRecognizedText();
-        // 常時収音モード: SpeechRecognitionManager が動いていれば常にアイコンを表示
-        bool mic = speechRecognitionManager != null && speechRecognitionManager.IsListening;
-
-        SetDialogVisible(showDialog);
-        SetVoiceRecognitionVisible(true);
-        ToggleRecordingIconVisibility(mic);
 
         switch (state)
         {
+            case AppState.Idle:
+                SetSendButtonVisible(false);
+                return;
+
             case AppState.Processing:
                 SetSendButtonVisible(false);
-                SetRecordedText(GetText("processing"));
                 return;
 
             case AppState.Executing:
@@ -251,11 +257,11 @@ public class SpeechRecognitionUIManager : MonoBehaviour
                 return;
 
             case AppState.Error:
-                SetSendButtonVisible(HasRecognizedText());
+                SetSendButtonVisible(HasUserSpeech());
                 return;
 
             default:
-                SetSendButtonVisible(canSend && HasRecognizedText());
+                SetSendButtonVisible(canSend && HasUserSpeech());
                 return;
         }
     }
@@ -268,93 +274,41 @@ public class SpeechRecognitionUIManager : MonoBehaviour
 
         if (appStateManager == null)
         {
-            SetRecordedText(GetText("app_state_not_set"));
+            ShowError("AppStateManager is not set");
             return;
         }
 
         if (webSocketManager != null && !webSocketManager.IsConnected)
         {
-            SetRecordedText(GetText("server_not_connected"));
+            ShowError("Server not connected");
             return;
         }
 
         bool sent = appStateManager.SendPendingRecognizedSpeech();
         if (sent)
         {
-            SetRecordedText(GetText("sent"));
+            ShowSystemStatus("Sent");
             return;
         }
 
-        // 送信失敗の理由を表示
         if (objectRegistry != null)
         {
             List<ObjectData> objects = objectRegistry.GetAll();
             if (objects.Count == 0)
             {
-                SetRecordedText(GetText("no_objects"));
+                ShowError("No spatial objects found");
                 return;
             }
         }
 
-        SetRecordedText(GetText("failed_to_send"));
-    }
-
-    // ───────────────────────── Localization ─────────────────────────
-
-    private string GetText(string key, string arg0 = null)
-    {
-        string lang = languageSettings != null ? languageSettings.CurrentLanguage : "ja";
-        bool isJa = lang == "ja";
-
-        switch (key)
-        {
-            case "listening": return isJa ? "収音中..." : "Listening...";
-            case "processing": return isJa ? "推論中..." : "Processing...";
-            case "confirm": return isJa ? $"確認: {arg0}" : $"Confirm: {arg0}";
-            case "app_state_not_set": return isJa ? "AppStateManager が未設定です" : "AppStateManager is not set";
-            case "server_not_connected": return isJa ? "サーバー未接続です" : "Server not connected";
-            case "sent": return isJa ? "送信しました" : "Sent";
-            case "no_objects": return isJa ? "空間オブジェクトが0件です" : "No spatial objects found";
-            case "failed_to_send": return isJa ? "送信できませんでした" : "Failed to send";
-            default: return key;
-        }
-    }
-
-    // ───────────────────────── Calibration ─────────────────────────
-
-    public void SendCalibration()
-    {
-        _ = XarmAppServerQueryRequester.Instance.SendCalibrationRequest();
+        ShowError("Failed to send");
     }
 
     // ───────────────────────── UI Helpers ─────────────────────────
 
-    private bool HasRecognizedText()
+    private bool HasUserSpeech()
     {
-        return recordedText != null && !string.IsNullOrWhiteSpace(recordedText.text);
-    }
-
-    private bool CanSend()
-    {
-        if (webSocketManager != null && !webSocketManager.IsConnected)
-            return false;
-
-        if (objectRegistry != null && objectRegistry.GetAll().Count == 0)
-            return false;
-
-        return true;
-    }
-
-    private void SetDialogVisible(bool visible)
-    {
-        if (dialogUI != null)
-            dialogUI.SetActive(visible);
-    }
-
-    private void SetVoiceRecognitionVisible(bool visible)
-    {
-        if (voiceRecognitionUI != null)
-            voiceRecognitionUI.SetActive(visible);
+        return userSpeechText != null && !string.IsNullOrWhiteSpace(userSpeechText.text);
     }
 
     private void SetSendButtonVisible(bool visible)
@@ -363,16 +317,30 @@ public class SpeechRecognitionUIManager : MonoBehaviour
             sendButton.SetActive(visible);
     }
 
-    public void SetRecordedText(string text)
+    private static void SetText(TextMeshProUGUI target, string message)
     {
-        if (recordedText != null)
-            recordedText.text = text;
+        if (target == null) return;
+
+        target.text = $"{message}";
+        RebuildLayout(target);
     }
 
-    public void ToggleRecordingIconVisibility(bool isVisible)
+    private static void ClearText(TextMeshProUGUI target)
     {
-        if (recordingIcon != null)
-            recordingIcon.SetActive(isVisible);
+        if (target == null) return;
+
+        target.text = string.Empty;
+        RebuildLayout(target);
+    }
+
+    private static void RebuildLayout(TextMeshProUGUI target)
+    {
+        LayoutRebuilder.ForceRebuildLayoutImmediate(target.rectTransform);
+
+        if (target.rectTransform.parent is RectTransform parentTransform)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(parentTransform);
+        }
     }
 
     private void PlaySound(AudioClip clip)

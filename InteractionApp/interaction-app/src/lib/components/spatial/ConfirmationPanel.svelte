@@ -16,17 +16,17 @@
 </script>
 
 <div class="confirmation">
-  <p class="prompt">Please confirm the selection result:</p>
+  <p class="prompt">こちらでよろしいですか？</p>
   <div class="actions">
-    <button class="btn accept" onclick={onAccept}>✅ Accept (Yes)</button>
+    <button class="btn accept" onclick={onAccept}>はい、それで！</button>
     <div class="reject-group">
       <input
         type="text"
         bind:value={rejectText}
-        placeholder="Rephrase / Reason (optional)"
+        placeholder="違う場合は指示を入力（例：もっと右のやつ）"
         onkeydown={(e) => e.key === 'Enter' && reject()}
       />
-      <button class="btn reject" onclick={reject}>❌ Reject</button>
+      <button class="btn reject" onclick={reject}>違う</button>
     </div>
   </div>
 </div>

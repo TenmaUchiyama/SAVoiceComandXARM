@@ -405,7 +405,7 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
     _prune_expired_sessions()
     _validate_coordinates(request_data)
 
-    await notify("stage1", "参照フレームを分析中...")
+    await notify("stage1", "Thinking about what you mean...")
     frame_decision = await _run_stage1(request_data.utterance.text)
     reference_frame = frame_decision.reference_frame
 
@@ -417,7 +417,7 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
         robot_pose=request_data.robot_pose,
     )
 
-    await notify("stage2", "オブジェクトを選択中...")
+    await notify("stage2", "Searching for the right one...")
     try:
         print(f"【STAGE2】Running Stage 2 ランキング (request_id={request_data.request_id})")
 
@@ -429,7 +429,7 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
     except Exception:
         ranked_candidates = apply_fallback_ranking(request_data.utterance.text, features)
 
-    await notify("done", "結果を準備中...")
+    await notify("done", "Found it!")
     _store_session(SessionContext(
         request_id=request_data.request_id,
         utterance=request_data.utterance.text,
@@ -445,7 +445,7 @@ async def _process_spatial_reference_request(request_data: SpatialReferenceReque
         request_id=request_data.request_id,
         reference_frame=reference_frame,
         ranked_candidates=ranked_candidates,
-        reasoning="LLM selection" if ranked_candidates and ranked_candidates[0].get("reason") != "fallback" else "fallback selection",
+        reasoning="This looks like the best match!" if ranked_candidates and ranked_candidates[0].get("reason") != "fallback" else "Found the closest candidates!",
     )
 
 
@@ -469,7 +469,7 @@ async def _process_refinement_request(request_data: RefinementRequest) -> dict:
         robot_pose=previous.robot_pose,
     )
 
-    refinement_context = f"前回ターゲット: {request_data.previous_target or previous.ranked_candidates[0].get('object_id') if previous.ranked_candidates else 'unknown'}"
+    refinement_context = f"Previous target: {request_data.previous_target or previous.ranked_candidates[0].get('object_id') if previous.ranked_candidates else 'unknown'}"
     try:
         stage2 = await _run_stage2(request_data.utterance.text, reference_frame, features, refinement_context)
         ranked_candidates = _materialize_stage2_candidates(stage2, features)
@@ -494,7 +494,7 @@ async def _process_refinement_request(request_data: RefinementRequest) -> dict:
         request_id=request_data.request_id,
         reference_frame=reference_frame,
         ranked_candidates=ranked_candidates,
-        reasoning="refined selection",
+        reasoning="Searched again! How about this one?",
     )
 
 
@@ -516,7 +516,7 @@ async def _process_confirmation_request(request_data: ConfirmationRequest) -> Li
     if not request_data.accepted:
         rejected_id = request_data.confirmed_object_id
         reason = request_data.rejection_reason or ""
-        refinement_context = f"ユーザーが {rejected_id} を拒否しました。理由: {reason}" if reason else f"ユーザーが {rejected_id} を拒否しました。別の候補を提示してください。"
+        refinement_context = f"User rejected {rejected_id}. Reason: {reason}" if reason else f"User rejected {rejected_id}. Please suggest another candidate."
         print(f"【HITL】拒否 → Stage2 再選定 (rejected={rejected_id}, reason={reason}, request_id={request_data.request_id})")
 
         features = compute_spatial_features(
@@ -554,7 +554,7 @@ async def _process_confirmation_request(request_data: ConfirmationRequest) -> Li
             request_id=request_data.request_id,
             reference_frame=session.reference_frame,
             ranked_candidates=ranked_candidates,
-            reasoning=f"re-selection after rejection of {rejected_id}",
+            reasoning="Got it, found another candidate! How about this one?",
         )]
 
     # ── ユーザーが承認した場合 → ロボットピック ──
@@ -579,11 +579,11 @@ async def _process_confirmation_request(request_data: ConfirmationRequest) -> Li
         target_object_id=target.id,
         target_position=target_position,
         status="started",
-        message="robot action started",
+        message="Got it! Going to pick it up now.",
     )
 
     final_status = "completed"
-    final_message = "robot action completed"
+    final_message = "Picked up successfully! Delivering now."
 
     if robot is not None and request_data.action == "pick":
         # Parse grid indices from object ID e.g. "RestoredPoint_13_(1,3)" -> col=1, row=3

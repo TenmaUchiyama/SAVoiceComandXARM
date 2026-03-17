@@ -11,12 +11,11 @@ public class SpatialDebugLog : MonoBehaviour
     [SerializeField] private TextMeshProUGUI logText; // Canvas上のText
     [SerializeField] private int maxLines = 15;       // 表示する最大行数
 
-    [Header("Logging")] 
+    [Header("Logging")]
     [SerializeField] private bool globalLogEnabled = true; // 全体の出力ON/OFF
 
     private Queue<string> logQueue = new Queue<string>();
     private StringBuilder sb = new StringBuilder();
-    
 
     private void Awake()
     {

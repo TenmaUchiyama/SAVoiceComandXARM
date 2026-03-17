@@ -3,7 +3,10 @@
     "allow": [
       "Bash(python3:*)",
       "Bash(powershell:*)",
-      "Bash(cd \"C:\\\\Users\\\\Tenma\\\\Desktop\\\\Keio\\\\SpatiallyAwareXarmRobot\\\\SAVoiceComandXARM\\\\InteractionApp\\\\interaction-app\" && npx svelte-check --tsconfig ./tsconfig.json 2>&1 | head -30)"
+      "Bash(cd \"C:\\\\Users\\\\Tenma\\\\Desktop\\\\Keio\\\\SpatiallyAwareXarmRobot\\\\SAVoiceComandXARM\\\\InteractionApp\\\\interaction-app\" && npx svelte-check --tsconfig ./tsconfig.json 2>&1 | head -30)",
+      "Bash(find \"/c/Users/tenma/Desktop/SpatialUnderstandingXARM/SAVoiceComandXARM\" -name \"*spatial*\" -o -name \"*prompt*\" -o -name \"*llm*\" | grep -E \"\\\\.\\(py|ts|js\\)$\" | head -20)",
+      "Bash(grep -r \"was selected\\\\|Box.*selected\" \"/c/Users/tenma/Desktop/SpatialUnderstandingXARM/SAVoiceComandXARM\" --include=\"*.py\" --include=\"*.ts\" --include=\"*.js\" 2>/dev/null | head -10)",
+      "Bash(find /c/Users/tenma/Desktop/SpatialUnderstandingXARM/SAVoiceComandXARM/SpatiallyAwareRobotArm/Assets -type f -name \"*.cs\" | xargs grep -l \"UI\\\\|Canvas\\\\|Panel\" | head -10)"
     ]
   }
 }

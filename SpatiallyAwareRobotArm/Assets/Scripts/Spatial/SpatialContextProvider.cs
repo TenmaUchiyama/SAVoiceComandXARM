@@ -107,7 +107,7 @@ namespace SA_XARM.SpatialRef.Spatial
             return hologram.GetComponent<SpatialObject>();
         }
 
-        public SpatialReferenceRequest BuildRequest(string utteranceText, string language = "ja")
+        public SpatialReferenceRequest BuildRequest(string utteranceText, string language = "en")
         {
             return new SpatialReferenceRequest
             {
@@ -116,7 +116,7 @@ namespace SA_XARM.SpatialRef.Spatial
                 utterance = new Utterance
                 {
                     text = utteranceText,
-                    language = string.IsNullOrWhiteSpace(language) ? "ja" : language
+                    language = string.IsNullOrWhiteSpace(language) ? "en" : language
                 },
                 user_pose = GetUserPose(),
                 objects = GetObjects(),

@@ -30,7 +30,7 @@ Your job is to classify the intent of the user's confirmation response.
   - ≥ 0.8: Clear affirmative/negative word present
   - 0.5–0.79: Inferred from context
   - < 0.5: Guessed / ambiguous
-- **reason**: One sentence explaining the basis for the classification
+- **reason**: A conversational response to the user (e.g., "Got it! I'll go pick it up now." / "No problem, let me find another one!")
 - **refinement_utterance**: If intent is "refine", fill with the new instruction content. Otherwise set to "" (empty string)
 - **confirmed_object_id**: Carry over the object ID that the system was confirming (from input). Set to null if unknown
 

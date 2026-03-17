@@ -32,6 +32,12 @@
     <button class="btn btn-show" onclick={() => sendCalibration('grid_show')}>Show Grid</button>
     <button class="btn btn-hide" onclick={() => sendCalibration('grid_hide')}>Hide Grid</button>
   </div>
+  <h3 class="sub-heading">Debug UI</h3>
+  <div class="btn-group">
+    <button class="btn btn-show" onclick={() => sendCalibration('debug_ui_show')}>Show</button>
+    <button class="btn btn-hide" onclick={() => sendCalibration('debug_ui_hide')}>Hide</button>
+    <button class="btn btn-move" onclick={() => sendCalibration('debug_ui_move_front')}>Move to Front</button>
+  </div>
 </section>
 
 <style>
@@ -76,5 +82,9 @@
   .btn-hide:hover {
     background: #450a0a;
     border-color: #dc2626;
+  }
+  .btn-move:hover {
+    background: #1e3a5f;
+    border-color: #2563eb;
   }
 </style>

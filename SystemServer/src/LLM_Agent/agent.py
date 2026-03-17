@@ -13,7 +13,7 @@ dotenv.load_dotenv()
 _PROMPT_DIR = Path(__file__).resolve().parent / "prompt"
 
 # --- Language selection via env var (default: ja) ---
-_PROMPT_LANG = os.getenv("PROMPT_LANG", "ja").strip().lower()
+_PROMPT_LANG = os.getenv("PROMPT_LANG", "en").strip().lower()
 _SUFFIX = "_en" if _PROMPT_LANG == "en" else ""
 
 

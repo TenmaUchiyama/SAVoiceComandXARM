@@ -70,6 +70,9 @@ namespace SA_XARM.Network.Websocket
         [SerializeField] private string calibrationRequestEventId = "pc_debug_calibration_request";
         [SerializeField] private string calibrationResponseEventId = "pc_debug_calibration_response";
 
+        [Header("Debug UI")]
+        [SerializeField] private GameObject debugParent;
+
         [Header("Settings")]
         [SerializeField] private bool autoSubscribeOnEnable = true;
 
@@ -269,6 +272,60 @@ namespace SA_XARM.Network.Websocket
                         registry.SetVisualAll(false);
                         response.success = true;
                         response.message = "Grid visual hidden.";
+                        break;
+                    }
+
+                    case "debug_ui_show":
+                    {
+                        if (debugParent == null)
+                        {
+                            response.error = "debugParent is not assigned in Inspector.";
+                            break;
+                        }
+                        debugParent.SetActive(true);
+                        response.success = true;
+                        response.message = "Debug UI shown.";
+                        break;
+                    }
+
+                    case "debug_ui_hide":
+                    {
+                        if (debugParent == null)
+                        {
+                            response.error = "debugParent is not assigned in Inspector.";
+                            break;
+                        }
+                        debugParent.SetActive(false);
+                        response.success = true;
+                        response.message = "Debug UI hidden.";
+                        break;
+                    }
+
+                    case "debug_ui_move_front":
+                    {
+                        if (debugParent == null)
+                        {
+                            response.error = "debugParent is not assigned in Inspector.";
+                            break;
+                        }
+                        Camera cam = Camera.main;
+                        if (cam == null)
+                        {
+                            response.error = "Main Camera not found.";
+                            break;
+                        }
+                        debugParent.SetActive(true);
+                        Vector3 targetPos = cam.transform.position + cam.transform.forward * 0.5f;
+                        Quaternion targetRot = Quaternion.LookRotation(
+                            targetPos - cam.transform.position, Vector3.up);
+
+                        foreach (Transform child in debugParent.transform)
+                        {
+                            child.position = targetPos;
+                            child.rotation = targetRot;
+                        }
+                        response.success = true;
+                        response.message = $"Moved {debugParent.transform.childCount} children to 0.5m in front of camera.";
                         break;
                     }
 
